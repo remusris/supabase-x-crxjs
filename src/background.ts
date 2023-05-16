@@ -572,7 +572,7 @@ function createDocData(objectToPush) {
   // console.log("tempActiveTabItemList[0].id 2", tempActiveTabItemList[0].id)
   // console.log("tempTabItemList[0].id 2", tempTabItemList[0].id)
 
-  function docGenerator(linkTransition, node) {
+  /* function docGenerator(linkTransition, node) {
     if (tempActiveTabItemList[0].id != tempTabItemList[0].id) {
       console.log("newTab inscriber");
       linkTransition = "newTab";
@@ -617,7 +617,7 @@ function createDocData(objectToPush) {
       tabFaviconUrl: tabFaviconUrl,
       activeSession: activeSession,
     };
-  }
+  } */
 }
 
 function getFaviconUrl(url, size = 64) {
@@ -846,23 +846,6 @@ type HistoryItem = {
   visitCount: number;
 };
 
-const objectToPush2 = {
-  url: null,
-  node: null,
-  link: null,
-  activeTabId: null,
-  activeTabWindowId: null,
-  title: null,
-  tabFaviconUrl: null,
-  tabWindowId: null,
-  tabId: null,
-  tabStatus: null,
-  user_id: null,
-  time: null,
-  transitionType: null,
-  linkTransition: null,
-};
-
 function promisify(func) {
   return function (...args) {
     return new Promise((resolve, reject) => {
@@ -877,63 +860,181 @@ function promisify(func) {
   };
 }
 
-async function historyTabQuery(historyUrl) {
+async function historyTabQuery(historyUrl, objectToPush2) {
   const tabs = await promisify(chrome.tabs.query)({ url: historyUrl });
   console.log("tabs", tabs);
   if (tabs[0] != undefined) {
+    console.log("historyTabsQuery", tabs);
     objectToPush2.tabId = tabs[0].id;
     objectToPush2.tabWindowId = tabs[0].windowId;
     objectToPush2.tabStatus = tabs[0].status;
+    objectToPush2.tabFaviconUrl = tabs[0].favIconUrl;
   }
   return tabs;
 }
 
-async function activeTabQuery() {
+async function activeTabQuery(objectToPush2) {
   const tabs = await promisify(chrome.tabs.query)({
     active: true,
     lastFocusedWindow: true,
+    highlighted: true,
   });
   if (tabs[0] != undefined) {
+    console.log("activeTab info", tabs[0]);
     objectToPush2.activeTabId = tabs[0].id;
     objectToPush2.activeTabWindowId = tabs[0].windowId;
   }
   return tabs;
 }
 
-async function getVisitsQuery(historyItem: HistoryItem) {
+// async function getVisitsQuery(historyItem: HistoryItem, objectToPush2) {
+//   const visitItems = (await promisify(chrome.history.getVisits)({
+//     url: historyItem.url,
+//   })) as VisitItem[];
+
+//   console.log("historyItem time", historyItem.lastVisitTime);
+//   console.log("visitItems", visitItems);
+//   // Apply the filter
+//   // const filteredItems = visitItems.filter(
+//   //   (visitItem) =>
+//   //     visitItem.visitTime >= historyItem.lastVisitTime &&
+//   //     visitItem.id == historyItem.id
+//   // );
+
+//   const filteredItems = visitItems.filter(
+//     (visitItem) =>
+//       Math.floor(visitItem.visitTime / 1000) ===
+//         Math.floor(historyItem.lastVisitTime / 1000) &&
+//       visitItem.id == historyItem.id
+//   );
+
+//   console.log("filteredItems", filteredItems);
+
+//   // If there is at least one item, get the transitionType of the first item
+//   if (filteredItems.length > 0) {
+//     console.log("filteredItems[0]", filteredItems[0]);
+//     objectToPush2.transitionType = filteredItems[0].transition;
+//     console.log("objectToPush2 after filteredItems", objectToPush2);
+//   }
+
+//   return objectToPush2.transitionType;
+// }
+
+async function getVisitsQuery(historyItem: HistoryItem, objectToPush2) {
   const visitItems = (await promisify(chrome.history.getVisits)({
     url: historyItem.url,
   })) as VisitItem[];
 
-  // Apply the filter
+  console.log("historyItem time", historyItem.lastVisitTime);
+  console.log("visitItems", visitItems);
+
   const filteredItems = visitItems.filter(
     (visitItem) =>
-      visitItem.visitTime &&
-      visitItem.visitTime >= historyItem.lastVisitTime &&
+      Math.floor(visitItem.visitTime / 1000) ===
+        Math.floor(historyItem.lastVisitTime / 1000) &&
       visitItem.id == historyItem.id
   );
 
-  // If there is at least one item, get the transitionType of the first item
+  console.log("filteredItems", filteredItems);
+
+  // If there is at least one item
   if (filteredItems.length > 0) {
-    objectToPush2.transitionType = filteredItems[0].transition;
+    // Look for a non-"link" item
+    const nonLinkItem = filteredItems.find(
+      (item) => item.transition !== "link"
+    );
+
+    // If a non-"link" item is found, use its transition type
+    if (nonLinkItem) {
+      objectToPush2.transitionType = nonLinkItem.transition;
+      console.log("filteredItems[0]", nonLinkItem);
+    }
+    // If no non-"link" item is found, but there are other items, use the transition type of the first item
+    else if (filteredItems[0].transition === "link") {
+      objectToPush2.transitionType = filteredItems[0].transition;
+      console.log("filteredItems[0]", filteredItems[0]);
+    }
   }
+  // If there are no items, set the transition type to "link"
+  else {
+    objectToPush2.transitionType = "link";
+  }
+
+  console.log("objectToPush2 after filteredItems", objectToPush2);
 
   return objectToPush2.transitionType;
 }
 
 // new attempt at history listener
 chrome.history.onVisited.addListener(async function (historyItem: HistoryItem) {
+  const objectToPush2 = {
+    url: null,
+    node: null,
+    link: null,
+    activeTabId: null,
+    activeTabWindowId: null,
+    title: null,
+    tabFaviconUrl: null,
+    tabWindowId: null,
+    tabId: null,
+    tabStatus: null,
+    user_id: null,
+    time: null,
+    transitionType: null,
+    linkTransition: null,
+  };
+
   objectToPush2.url = historyItem.url;
   objectToPush2.title = historyItem.title;
   objectToPush2.time = historyItem.lastVisitTime;
 
+  await historyTabQuery(historyItem.url, objectToPush2);
+  await activeTabQuery(objectToPush2);
+  await getVisitsQuery(historyItem, objectToPush2);
+
+  if (
+    objectToPush2.tabFaviconUrl == "" ||
+    objectToPush2.tabFaviconUrl == null ||
+    objectToPush2.tabFaviconUrl == undefined
+  ) {
+    objectToPush2.tabFaviconUrl = getFaviconUrl(objectToPush2.url);
+  }
+
+  if (
+    objectToPush2.transitionType == "link" &&
+    objectToPush2.activeTabId != objectToPush2.tabId &&
+    objectToPush2.tabWindowId == objectToPush2.activeTabWindowId
+  ) {
+    objectToPush2.linkTransition = "newTab";
+  }
+
+  if (objectToPush2.activeTabId == objectToPush2.tabId) {
+    objectToPush2.linkTransition = "sameTab";
+  }
+
   try {
     // Call all three asynchronous functions simultaneously
-    await Promise.all([
+    /* await Promise.all([
       historyTabQuery(historyItem.url),
       activeTabQuery(),
       getVisitsQuery(historyItem),
-    ]);
+    ]); */
+
+    /* if (
+      objectToPush2.tabFaviconUrl == "" ||
+      objectToPush2.tabFaviconUrl == null ||
+      objectToPush2.tabFaviconUrl == undefined
+    ) {
+      objectToPush2.tabFaviconUrl = getFaviconUrl(objectToPush2.url);
+    }
+
+    if (objectToPush2.activeTabId != objectToPush2.tabId) {
+      objectToPush2.linkTransition = "newTab";
+    }
+
+    if (objectToPush2.activeTabId == objectToPush2.tabId) {
+      objectToPush2.linkTransition = "sameTab";
+    } */
 
     console.log("objectToPush2", objectToPush2);
     // Call the supabase uploader function here
@@ -942,16 +1043,4 @@ chrome.history.onVisited.addListener(async function (historyItem: HistoryItem) {
     // Handle any errors that occurred in any of the promises
     console.error(error);
   }
-});
-
-chrome.history.onVisited.addListener(function (historyItem: HistoryItem) {
-  console.log(historyItem);
-  console.log(historyItem.url);
-  chrome.tabs.query(
-    { url: historyItem.url },
-    //query the tabItem
-    function (tab) {
-      console.log("tab", tab);
-    }
-  );
 });

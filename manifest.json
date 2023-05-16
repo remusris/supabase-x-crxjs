@@ -3,7 +3,7 @@
   "name": "memoryLink_supabase_crx",
   "version": "1.0.0",
   "action": { "default_popup": "index.html" },
-  "permissions": ["storage", "tab", "activeTab", "history", "scripting"],
+  "permissions": ["storage", "tabs", "activeTab", "history", "scripting"],
   "background": {
     "service_worker": "src/background.ts"
   },
