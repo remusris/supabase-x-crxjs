@@ -618,3 +618,109 @@ chrome.history.onVisited.addListener(async function (historyItem: HistoryItem) {
     console.error(error);
   }
 });
+
+function processURL(urlObject) {
+  // push the new URL onto the loadBalancer array
+  loadBalancer.push(urlObject);
+  console.log("loadBalancer", loadBalancer);
+
+  const uploadDelay = 1500;
+
+  // remove any consecutive duplicate URLs
+  removeConsecutiveDuplicates(loadBalancer);
+
+  // if there isn't already a timeout running, start one
+  if (!uploadTimeout) {
+    uploadTimeout = setTimeout(function () {
+      // upload the URLs and clear the array
+      uploadAll(loadBalancer);
+      loadBalancer = [];
+      // clear the timeout
+      uploadTimeout = null;
+    }, uploadDelay);
+  }
+}
+
+function normalizeURL(url) {
+  if (!url) {
+    return url;
+  }
+
+  const urlObj = new URL(url);
+  let normalizedURL = urlObj.hostname + urlObj.pathname;
+
+  // Remove 'www.' prefix if exists
+  normalizedURL = normalizedURL.replace(/^www\./, "");
+
+  return normalizedURL;
+}
+
+function removeConsecutiveDuplicates(loadBalancer) {
+  let i = 0;
+  while (i < loadBalancer.length - 1) {
+    const currentURL = normalizeURL(loadBalancer[i].url);
+    const nextURL = normalizeURL(loadBalancer[i + 1].url);
+    console.log("currentURL", currentURL);
+    console.log("nextURL", nextURL);
+    console.log("loadBalancer[i].tabId", loadBalancer[i].tabId);
+    console.log("loadBalancer[i + 1].tabId", loadBalancer[i + 1].tabId);
+
+    // Remove if transitionType is 'form_submit'
+    if (loadBalancer[i].transitionType === "form_submit") {
+      loadBalancer.splice(i, 1);
+      console.log("Removed URL with form_submit transitionType");
+    }
+
+    if (currentURL === nextURL) {
+      console.log("inside the equal URLs if statement");
+      if (loadBalancer[i].tabId == null) {
+        console.log("loadBalancer[i].tabId", loadBalancer[i].tabId);
+        loadBalancer.splice(i, 1); // remove this item if it has null tabId
+        console.log("first item as null splice");
+      } else if (loadBalancer[i + 1].tabId == null) {
+        console.log("loadBalancer[i + 1].tabId", loadBalancer[i + 1].tabId);
+        loadBalancer.splice(i + 1, 1); // remove the next item if it has null tabId
+        console.log("second item as null splice");
+      } else if (
+        loadBalancer[i].tabId === loadBalancer[i + 1].tabId &&
+        loadBalancer[i].windowId === loadBalancer[i + 1].windowId
+      ) {
+        if (
+          loadBalancer[i].transitionType === "link" &&
+          loadBalancer[i + 1].transitionType !== "link"
+        ) {
+          loadBalancer.splice(i, 1); // remove this item, it's the same as the next one and it has transition type 'link'
+          console.log("loadBalancer first splice", loadBalancer);
+        } else if (
+          loadBalancer[i + 1].transitionType === "link" &&
+          loadBalancer[i].transitionType !== "link"
+        ) {
+          loadBalancer.splice(i + 1, 1); // remove the next item, it's the same as the current one and it has transition type 'link'
+          console.log("loadBalancer second splice", loadBalancer);
+        } else {
+          loadBalancer.splice(i + 1, 1); // remove the next item, it's the same as the current one or it has transition type 'link'
+          console.log("loadBalancer third splice", loadBalancer);
+        }
+      } else {
+        i++; // if the URLs, tabId or windowId are not the same, move on to the next item
+      }
+    } else {
+      i++; // if the URLs are not the same, move on to the next item
+    }
+  }
+}
+
+function uploadAll(loadBalancer) {
+  // Call the Supabase upload function for each unique URL object
+
+  console.log("inside uploadAll");
+  loadBalancer.forEach(async (urlObject) => {
+    const { supabaseAccessToken, supabaseExpiration, userId } =
+      await getSupabaseKeys();
+    validateToken(supabaseAccessToken, supabaseExpiration);
+    await uploadHistory(supabaseAccessToken, userId, urlObject);
+  });
+}
+
+let loadBalancer = [];
+let uploadTimeout = null;
