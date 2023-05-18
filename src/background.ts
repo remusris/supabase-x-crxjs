@@ -604,11 +604,12 @@ chrome.history.onVisited.addListener(async function (historyItem: HistoryItem) {
       objectToPush2.linkTransition = "sameTab";
     }
 
-    // Call the Supabase upload function here
+    await processURL(objectToPush2);
+    /*  // Call the Supabase upload function here
     const { supabaseAccessToken, supabaseExpiration, userId } =
       await getSupabaseKeys();
     validateToken(supabaseAccessToken, supabaseExpiration);
-    await uploadHistory(supabaseAccessToken, userId, objectToPush2);
+    await uploadHistory(supabaseAccessToken, userId, objectToPush2); */
 
     // Call the supabase uploader function here
     // supabaseUploader(objectToPush2);
