@@ -280,10 +280,10 @@ async function createSessionId() {
   console.log("activeSession.sessionId", activeSession.id);
   console.log("inside the createSessionId function");
 
-  const { supabaseAccessToken, supabaseExpiration, userId } =
-    await getSupabaseKeys();
-  validateToken(supabaseAccessToken, supabaseExpiration);
-  await startSessionUpload(supabaseAccessToken, userId);
+  // const { supabaseAccessToken, supabaseExpiration, userId } =
+  //   await getSupabaseKeys();
+  // validateToken(supabaseAccessToken, supabaseExpiration);
+  // await startSessionUpload(supabaseAccessToken, userId);
 }
 
 // timer needs to start once the service worker is loaded
@@ -375,6 +375,7 @@ async function uploadHistory(supabaseAccessToken, userId, objectToPush2) {
 
   objectToPush2.user_id = userId;
   objectToPush2.id = uuidv4();
+  console.log(objectToPush2, "objectToPush2");
 
   const response = await fetch(SUPABASE_URL_, {
     method: "POST",
@@ -441,9 +442,9 @@ type HistoryItem = {
   id: string;
   lastVisitTime?: number;
   title?: string;
-  typedCount: number;
+  typedCount?: number;
   url?: string;
-  visitCount: number;
+  visitCount?: number;
 };
 
 // make the async chrome.tabs.query function return a promise
@@ -480,7 +481,6 @@ async function activeTabQuery(objectToPush2) {
   const tabs = await promisify(chrome.tabs.query)({
     active: true,
     lastFocusedWindow: true,
-    highlighted: true,
   });
   if (tabs[0] != undefined) {
     console.log("activeTab info", tabs[0]);
@@ -544,19 +544,21 @@ chrome.history.onVisited.addListener(async function (historyItem: HistoryItem) {
     time: null,
     transitionType: null,
     linkTransition: null,
+    session_id: null,
   };
 
   isActiveSessionChecker(historyItem);
 
+  /* await activeTabQuery(objectToPush2);
+  await historyTabQuery(historyItem.url, objectToPush2);
+  await getVisitsQuery(historyItem, objectToPush2); */
+
   objectToPush2.url = historyItem.url;
   objectToPush2.title = historyItem.title;
   objectToPush2.time = historyItem.lastVisitTime;
+  objectToPush2.session_id = activeSession.id;
 
-  /* await historyTabQuery(historyItem.url, objectToPush2);
-  await activeTabQuery(objectToPush2);
-  await getVisitsQuery(historyItem, objectToPush2);
-
-  if (
+  /* if (
     objectToPush2.tabFaviconUrl == "" ||
     objectToPush2.tabFaviconUrl == null ||
     objectToPush2.tabFaviconUrl == undefined
@@ -574,13 +576,43 @@ chrome.history.onVisited.addListener(async function (historyItem: HistoryItem) {
 
   if (objectToPush2.activeTabId == objectToPush2.tabId) {
     objectToPush2.linkTransition = "sameTab";
+  }
+
+  if (objectToPush2.transitionType == "typed") {
+    objectToPush2.linkTransition = "sameTab";
   } */
+
+  loadBalancer.push(objectToPush2);
+
+  console.log("loadBalancer", loadBalancer);
+
+  /* setTimeout(() => {
+    if (loadBalancer.length == 1) {
+      console.log("time to upload here");
+    }
+
+    if (loadBalancer.length == 2) {
+      // are there two consectutive urls in a row? if so delete one of them
+      if (
+        loadBalancer[0].url == loadBalancer[1].url &&
+        loadBalancer[0].tabId == loadBalancer[1].tabId &&
+        loadBalancer[0].windowId == loadBalancer[1].windowId
+      ) {
+        if (loadBalancer[0].linkTransition == null) {
+          loadBalancer.splice(0, 1);
+        }
+        if (loadBalancer[1].linkTransition == null) {
+          loadBalancer.splice(1, 1);
+        }
+      }
+    }
+  }, 1500); */
 
   try {
     // Call all three asynchronous functions simultaneously
     await Promise.all([
-      historyTabQuery(historyItem.url, objectToPush2),
       activeTabQuery(objectToPush2),
+      historyTabQuery(historyItem.url, objectToPush2),
       getVisitsQuery(historyItem, objectToPush2),
     ]);
 
@@ -604,6 +636,37 @@ chrome.history.onVisited.addListener(async function (historyItem: HistoryItem) {
       objectToPush2.linkTransition = "sameTab";
     }
 
+    if (objectToPush2.transitionType == "typed") {
+      objectToPush2.linkTransition = "sameTab";
+    }
+
+    /* -------------------------------------------------------- */
+
+    /* if (loadBalancer.length == 3) {
+      if (
+        loadBalancer[0].url == loadBalancer[1].url &&
+        loadBalancer[1].url == loadBalancer[2].url
+      ) {
+        //check first entry
+        if (loadBalancer[0].linkTransition == "link") {
+          loadBalancer.splice(0, 2);
+          ifTwoLoadBalancer();
+        }
+
+        //check second entry
+        if (loadBalancer[1].linkTransition == "link") {
+          loadBalancer.splice(1, 2);
+          ifTwoLoadBalancer();
+        }
+
+        //check third entry
+        if (loadBalancer[2].linkTransition == "link") {
+          loadBalancer.splice(2, 2);
+          ifTwoLoadBalancer();
+        }
+      }
+    } */
+
     // Call the Supabase upload function here
     const { supabaseAccessToken, supabaseExpiration, userId } =
       await getSupabaseKeys();
@@ -617,3 +680,261 @@ chrome.history.onVisited.addListener(async function (historyItem: HistoryItem) {
     console.error(error);
   }
 });
+
+let loadBalancer = [];
+
+/* async historyUploader(objectToPush2) {
+  try {
+    // Call the Supabase upload function here
+    const { supabaseAccessToken, supabaseExpiration, userId } =
+      await getSupabaseKeys();
+    validateToken(supabaseAccessToken, supabaseExpiration);
+    await uploadHistory(supabaseAccessToken, userId, objectToPush2);
+  } catch (error) {
+    // Handle any errors that occurred in any of the promises
+    console.error(error);
+  }
+} */
+
+/* function ifTwoLoadBalancer() {
+  if (loadBalancer.length == 2) {
+    console.log("test")
+
+    if (loadBalancer[0].url == loadBalancer[1].url) {
+      loadBalancer.splice(1,1)
+    }
+  }
+} */
+
+// async function processURL(objectToPush) {
+//   const UPLOAD_DELAY = 2000;
+//   let uploadTimeout = null;
+
+//   // Add the URL to the loadBalancer array
+//   loadBalancer.push(objectToPush);
+
+//   // Remove any duplicate URLs
+//   removeConsecutiveDuplicates();
+
+//   // Clear any existing upload timeout
+//   if (uploadTimeout !== null) {
+//     clearTimeout(uploadTimeout);
+//     uploadTimeout = null;
+//   }
+
+//   // Start a new upload timeout
+//   uploadTimeout = setTimeout(async () => {
+//     if (loadBalancer.length > 0) {
+//       try {
+//         // Call the Supabase upload function here
+//         const { supabaseAccessToken, supabaseExpiration, userId } = await getSupabaseKeys();
+//         validateToken(supabaseAccessToken, supabaseExpiration);
+
+//         // Upload each URL in the loadBalancer array
+//         for(let i = 0; i < loadBalancer.length; i++) {
+//           await uploadHistory(supabaseAccessToken, userId, loadBalancer[i]);
+//         }
+
+//         // Clear the loadBalancer array after successful upload
+//         loadBalancer = [];
+//       } catch (error) {
+//         // Handle any errors that occurred in any of the promises
+//         console.error(error);
+//       }
+//     }
+//   }, UPLOAD_DELAY);
+// }
+let uploadTimeout = null;
+
+async function processURL(objectToPush) {
+  const UPLOAD_DELAY = 2000;
+
+  // Add the URL to the loadBalancer array
+  loadBalancer.push(objectToPush);
+
+  // Remove any duplicate URLs
+  removeConsecutiveDuplicates();
+
+  // Clear any existing upload timeout
+  if (uploadTimeout !== null) {
+    clearTimeout(uploadTimeout);
+    uploadTimeout = null;
+  }
+
+  // Start a new upload timeout
+  uploadTimeout = setTimeout(async () => {
+    if (loadBalancer.length > 0) {
+      try {
+        // Call the Supabase upload function here
+        const { supabaseAccessToken, supabaseExpiration, userId } =
+          await getSupabaseKeys();
+        validateToken(supabaseAccessToken, supabaseExpiration);
+
+        // Upload each URL in the loadBalancer array
+        for (let i = 0; i < loadBalancer.length; i++) {
+          await uploadHistory(supabaseAccessToken, userId, loadBalancer[i]);
+          console.log("loadBalancer[i]", loadBalancer[i]);
+        }
+
+        // Clear the loadBalancer array after successful upload
+        loadBalancer = [];
+      } catch (error) {
+        // Handle any errors that occurred in any of the promises
+        console.error(error);
+      }
+    }
+  }, UPLOAD_DELAY);
+}
+
+function removeConsecutiveDuplicates() {
+  let i = 0;
+  while (i < loadBalancer.length - 1) {
+    if (
+      loadBalancer[i].url === loadBalancer[i + 1].url &&
+      loadBalancer[i].tabId === loadBalancer[i + 1].tabId &&
+      loadBalancer[i].windowId === loadBalancer[i + 1].windowId
+    ) {
+      loadBalancer.splice(i, 1); // remove this item, it's the same as the next one
+    } else {
+      i++; // only increment if we didn't remove an item
+    }
+  }
+}
+
+/* chrome.history.onVisited.addListener(async function (historyItem) {
+  const objectToPush2 = {
+    id: null,
+    url: null,
+    node: null,
+    link: null,
+    activeTabId: null,
+    activeTabWindowId: null,
+    title: null,
+    tabFaviconUrl: null,
+    tabWindowId: null,
+    tabId: null,
+    tabStatus: null,
+    user_id: null,
+    time: null,
+    transitionType: null,
+    linkTransition: null,
+    session_id: null,
+  };
+
+  console.log("inside onVisited listener");
+  isActiveSessionChecker(historyItem);
+  objectToPush2.url = historyItem.url;
+  objectToPush2.title = historyItem.title;
+  objectToPush2.time = historyItem.lastVisitTime;
+  objectToPush2.session_id = activeSession.id;
+
+  try {
+    // Call all three asynchronous functions simultaneously
+    await Promise.all([
+      activeTabQuery(objectToPush2),
+      historyTabQuery(historyItem.url, objectToPush2),
+      getVisitsQuery(historyItem, objectToPush2),
+    ]);
+
+    if (
+      objectToPush2.tabFaviconUrl == "" ||
+      objectToPush2.tabFaviconUrl == null ||
+      objectToPush2.tabFaviconUrl == undefined
+    ) {
+      objectToPush2.tabFaviconUrl = getFaviconUrl(objectToPush2.url);
+    }
+
+    if (
+      objectToPush2.transitionType == "link" &&
+      objectToPush2.activeTabId != objectToPush2.tabId &&
+      objectToPush2.tabWindowId == objectToPush2.activeTabWindowId
+    ) {
+      objectToPush2.linkTransition = "newTab";
+    }
+
+    if (objectToPush2.activeTabId == objectToPush2.tabId) {
+      objectToPush2.linkTransition = "sameTab";
+    }
+
+    if (objectToPush2.transitionType == "typed") {
+      objectToPush2.linkTransition = "sameTab";
+    }
+
+    console.log("getting to processURL");
+    // Call the processURL function here
+    await processURL(objectToPush2);
+  } catch (error) {
+    // Handle any errors that occurred in any of the promises
+    console.error(error);
+  }
+}); */
+
+//uploading URL basic version - WORKS
+// chrome.history.onVisited.addListener(async function (historyItem) {
+//   console.log("historyItem inside");
+
+//   const SUPABASE_URL_ =
+//     "https://veedcagxcbafijuaremr.supabase.co/rest/v1/historyItems";
+
+//   try {
+//     // wait and await for the access tokens
+//     const supabaseAccessToken = await getKeyFromStorage(
+//       chromeStorageKeys.supabaseAccessToken
+//     );
+
+//     const supabaseExpiration = (await getKeyFromStorage(
+//       chromeStorageKeys.supabaseExpiration
+//     )) as number;
+
+//     const userId = await getKeyFromStorage(chromeStorageKeys.supabaseUserId);
+
+//     // check if there's not access token
+//     if (!supabaseAccessToken) {
+//       console.error("No Supabase access token found");
+//       return;
+//     }
+
+//     const currentTime = Math.floor(Date.now() / 1000);
+//     console.log("currentTime", currentTime);
+//     console.log("supabaseExpiration", supabaseExpiration);
+
+//     // Check if the token is expired
+//     if (currentTime > supabaseExpiration) {
+//       console.log("Supabase access token is expired");
+//       console.log("accessToken checker", supabaseAccessToken);
+//       // Here you can call the "refresh" action or redirect the user to login
+//       // For example:
+//       handleMessage({ action: "refresh", value: null }, console.log);
+//       return;
+//     }
+
+//     const randomId = uuidv4();
+//     console.log(userId);
+
+//     // the actual upload commencing
+//     const response = await fetch(SUPABASE_URL_, {
+//       method: "POST",
+//       headers: {
+//         apikey: import.meta.env.VITE_APP_SUPABASE_ANON_KEY,
+//         Authorization: `Bearer ${supabaseAccessToken}`,
+//         "Content-Type": "application/json",
+//         Prefer: "return=minimal",
+//       },
+//       body: JSON.stringify({
+//         url: historyItem.url,
+//         id: randomId,
+//         user_id: userId,
+//       }),
+//     });
+
+//     if (!response.ok) {
+//       const errorResponse = await response.json();
+//       console.error("Error response:", errorResponse);
+//       throw new Error(`HTTP error! status: ${response.status}`);
+//     }
+
+//     console.log("URL uploaded successfully:", historyItem.url);
+//   } catch (error) {
+//     console.error("Error uploading URL:", error.message);
+//   }
+// });
