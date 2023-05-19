@@ -565,7 +565,11 @@ chrome.history.onVisited.addListener(async function (historyItem: HistoryItem) {
   const { supabaseAccessToken, supabaseExpiration, userId } =
     await getSupabaseKeys();
   validateToken(supabaseAccessToken, supabaseExpiration);
-  await queryByTime(supabaseAccessToken, objectToPush2.time);
+  await queryByTime(
+    supabaseAccessToken,
+    objectToPush2.time,
+    highlightedTab.tabId
+  );
 
   /* await historyTabQuery(historyItem.url, objectToPush2);
   await activeTabQuery(objectToPush2);
@@ -832,7 +836,7 @@ async function updateHighlightedTab() {
 }
 
 async function queryByTime(supabaseAccessToken, time, tabId) {
-  const SUPABASE_URL_ = `https://veedcagxcbafijuaremr.supabase.co/rest/v1/historyItems?select=*&time=lte.${time}&order=time.desc`;
+  const SUPABASE_URL_ = `https://veedcagxcbafijuaremr.supabase.co/rest/v1/historyItems?select=*&time=lte.${time}&tabId=eq.${tabId}&order=time.desc`;
 
   const response = await fetch(SUPABASE_URL_, {
     method: "GET",
