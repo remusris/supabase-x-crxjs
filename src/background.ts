@@ -483,7 +483,7 @@ async function activeTabQuery(objectToPush2) {
     highlighted: true,
   });
   if (tabs[0] != undefined) {
-    console.log("activeTab info", tabs[0]);
+    console.log("activeTab info with highlighted true", tabs[0]);
     objectToPush2.activeTabId = tabs[0].id;
     objectToPush2.activeTabWindowId = tabs[0].windowId;
   }
@@ -544,6 +544,8 @@ chrome.history.onVisited.addListener(async function (historyItem: HistoryItem) {
     time: null,
     transitionType: null,
     linkTransition: null,
+    activatedTab: { lastQueryTime: null, url: null },
+    highlightedTab: { lastQueryTime: null, url: null },
   };
 
   isActiveSessionChecker(historyItem);
@@ -551,6 +553,19 @@ chrome.history.onVisited.addListener(async function (historyItem: HistoryItem) {
   objectToPush2.url = historyItem.url;
   objectToPush2.title = historyItem.title;
   objectToPush2.time = historyItem.lastVisitTime;
+
+  //activatedTab test
+  objectToPush2.activatedTab.lastQueryTime = activatedTab.lastQueryTime;
+  objectToPush2.activatedTab.url = activatedTab.info.url;
+
+  //highlightedTab test
+  objectToPush2.highlightedTab.lastQueryTime = highlightedTab.lastQueryTime;
+  objectToPush2.highlightedTab.url = highlightedTab.info.url;
+
+  const { supabaseAccessToken, supabaseExpiration, userId } =
+    await getSupabaseKeys();
+  validateToken(supabaseAccessToken, supabaseExpiration);
+  await queryByTime(supabaseAccessToken, objectToPush2.time);
 
   /* await historyTabQuery(historyItem.url, objectToPush2);
   await activeTabQuery(objectToPush2);
@@ -604,15 +619,27 @@ chrome.history.onVisited.addListener(async function (historyItem: HistoryItem) {
       objectToPush2.linkTransition = "sameTab";
     }
 
+    if (objectToPush2.transitionType == "typed") {
+      objectToPush2.linkTransition = "sameTab";
+    }
+
+    if (objectToPush2.transitionType == "auto-toplevel") {
+      objectToPush2.linkTransition = "newTab";
+    }
+
     await processURL(objectToPush2);
-    /*  // Call the Supabase upload function here
+    //we update the activated tab after the activatedTab data gets pushed
+    await updateActivatedTab();
+    //we update the highlighted tab after the highlightedTab data gets pushed
+    await updateHighlightedTab();
+
+    /*  
+    // Call the Supabase upload function here
     const { supabaseAccessToken, supabaseExpiration, userId } =
       await getSupabaseKeys();
     validateToken(supabaseAccessToken, supabaseExpiration);
-    await uploadHistory(supabaseAccessToken, userId, objectToPush2); */
-
-    // Call the supabase uploader function here
-    // supabaseUploader(objectToPush2);
+    await uploadHistory(supabaseAccessToken, userId, objectToPush2); 
+    */
   } catch (error) {
     // Handle any errors that occurred in any of the promises
     console.error(error);
@@ -711,6 +738,9 @@ function removeConsecutiveDuplicates(loadBalancer) {
 }
 
 function uploadAll(loadBalancer) {
+  //update the chrome.tabs.get function
+  // updateActivatedTab();
+
   // Call the Supabase upload function for each unique URL object
 
   console.log("inside uploadAll");
@@ -724,3 +754,101 @@ function uploadAll(loadBalancer) {
 
 let loadBalancer = [];
 let uploadTimeout = null;
+
+const activatedTab = {
+  info: null,
+  tabId: null,
+  lastQueryTime: null,
+};
+
+const highlightedTab = {
+  info: null,
+  tabId: null,
+  lastQueryTime: null,
+};
+
+// capturing the activatedTab info
+chrome.tabs.onActivated.addListener(async (activeTab) => {
+  console.log("activeTab.tabId", activeTab.tabId);
+  console.log("activeTab.windowId", activeTab.windowId);
+  activatedTab.tabId = activeTab.tabId;
+
+  chrome.tabs.get(activeTab.tabId, async (tab) => {
+    console.log("tab info on the activated tab", tab);
+
+    activatedTab.lastQueryTime = Date.now();
+    activatedTab.info = tab;
+
+    console.log("activatedTab", activatedTab);
+  });
+});
+
+// capturing the highlightedTab info
+chrome.tabs.onHighlighted.addListener(async (onHighlightedTab) => {
+  console.log("highlightedTab.tabIds", onHighlightedTab.tabIds);
+  console.log("highlightedTab.windowId", onHighlightedTab.windowId);
+
+  chrome.tabs.get(onHighlightedTab.tabIds[0], async (tab) => {
+    console.log("tab info on the highlighted tab", tab);
+
+    highlightedTab.lastQueryTime = Date.now();
+    highlightedTab.info = tab;
+    highlightedTab.tabId = tab.id;
+  });
+});
+
+// updating the activatedTab info
+async function updateActivatedTab() {
+  chrome.tabs.get(activatedTab.tabId, async (tab) => {
+    console.log("tab info on the activated tab", tab);
+    console.log("let's break it test");
+
+    activatedTab.lastQueryTime = Date.now();
+    activatedTab.info = tab;
+    activatedTab.tabId = tab.id;
+
+    console.log(
+      "activatedTab in the updateActivatedTab function",
+      activatedTab
+    );
+  });
+}
+
+// updating the highlightedTab info
+async function updateHighlightedTab() {
+  chrome.tabs.get(highlightedTab.tabId, async (tab) => {
+    console.log("tab info on the highlighted tab", tab);
+    console.log("let's break it test");
+
+    highlightedTab.lastQueryTime = Date.now();
+    highlightedTab.info = tab;
+    highlightedTab.tabId = tab.id;
+
+    console.log(
+      "highlightedTab in the updateHighlightedTab function",
+      highlightedTab
+    );
+  });
+}
+
+async function queryByTime(supabaseAccessToken, time, tabId) {
+  const SUPABASE_URL_ = `https://veedcagxcbafijuaremr.supabase.co/rest/v1/historyItems?select=*&time=lte.${time}&order=time.desc`;
+
+  const response = await fetch(SUPABASE_URL_, {
+    method: "GET",
+    headers: {
+      apikey: import.meta.env.VITE_APP_SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${supabaseAccessToken}`,
+      Range: "0-9",
+    },
+  });
+
+  if (!response.ok) {
+    const errorResponse = await response.json();
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+
+  const data = await response.json();
+  console.log("data from queryByTime", data);
+  return data;
+}
