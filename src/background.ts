@@ -206,7 +206,7 @@ async function handleMessage(
   }
 }
 
-//@ts-ignore - essential code below
+//@ts-ignore - essential code below - messaging from popup script
 chrome.runtime.onMessage.addListener((msg, sender, response) => {
   handleMessage(msg, response);
   return true;
@@ -294,8 +294,8 @@ async function startSessionUpload(supabaseAccessToken, userId) {
   const SUPABASE_URL_ =
     "https://veedcagxcbafijuaremr.supabase.co/rest/v1/browsingSessions";
 
-  const randomId = uuidv4();
-  activeSession.id = randomId;
+  // const randomId = uuidv4();
+  // activeSession.id = randomId;
   activeSession.user_id = userId;
 
   console.log("inside startSessionUpload");
@@ -374,7 +374,7 @@ async function uploadHistory(supabaseAccessToken, userId, objectToPush2) {
     "https://veedcagxcbafijuaremr.supabase.co/rest/v1/historyItems";
 
   objectToPush2.user_id = userId;
-  objectToPush2.id = uuidv4();
+  // objectToPush2.id = uuidv4();
 
   const response = await fetch(SUPABASE_URL_, {
     method: "POST",
@@ -532,7 +532,7 @@ chrome.history.onVisited.addListener(async function (historyItem: HistoryItem) {
     id: null,
     url: null,
     node: null,
-    link: null,
+    link: { source: null, target: null },
     activeTabId: null,
     activeTabWindowId: null,
     title: null,
@@ -546,6 +546,7 @@ chrome.history.onVisited.addListener(async function (historyItem: HistoryItem) {
     linkTransition: null,
     activatedTab: { lastQueryTime: null, url: null },
     highlightedTab: { lastQueryTime: null, url: null },
+    session_id: null,
   };
 
   isActiveSessionChecker(historyItem);
@@ -553,23 +554,18 @@ chrome.history.onVisited.addListener(async function (historyItem: HistoryItem) {
   objectToPush2.url = historyItem.url;
   objectToPush2.title = historyItem.title;
   objectToPush2.time = historyItem.lastVisitTime;
+  objectToPush2.id = uuidv4();
+
+  //adding the sessionId
+  objectToPush2.session_id = activeSession.id;
 
   //activatedTab test
-  objectToPush2.activatedTab.lastQueryTime = activatedTab.lastQueryTime;
-  objectToPush2.activatedTab.url = activatedTab.info.url;
+  // objectToPush2.activatedTab.lastQueryTime = activatedTab.lastQueryTime;
+  // objectToPush2.activatedTab.url = activatedTab.info.url;
 
   //highlightedTab test
-  objectToPush2.highlightedTab.lastQueryTime = highlightedTab.lastQueryTime;
-  objectToPush2.highlightedTab.url = highlightedTab.info.url;
-
-  const { supabaseAccessToken, supabaseExpiration, userId } =
-    await getSupabaseKeys();
-  validateToken(supabaseAccessToken, supabaseExpiration);
-  await queryByTime(
-    supabaseAccessToken,
-    objectToPush2.time,
-    highlightedTab.tabId
-  );
+  // objectToPush2.highlightedTab.lastQueryTime = highlightedTab.lastQueryTime;
+  // objectToPush2.highlightedTab.url = highlightedTab.info.url;
 
   /* await historyTabQuery(historyItem.url, objectToPush2);
   await activeTabQuery(objectToPush2);
@@ -631,8 +627,28 @@ chrome.history.onVisited.addListener(async function (historyItem: HistoryItem) {
       objectToPush2.linkTransition = "newTab";
     }
 
+    console.log("before queryByTime");
+
+    const { supabaseAccessToken, supabaseExpiration, userId } =
+      await getSupabaseKeys();
+    validateToken(supabaseAccessToken, supabaseExpiration);
+    await queryByTime(
+      supabaseAccessToken,
+      objectToPush2.time,
+      highlightedTab.tabId,
+      objectToPush2
+    );
+
+    console.log("after queryByTime");
+    console.log("objectToPush2", objectToPush2);
+
     await processURL(objectToPush2);
     //we update the activated tab after the activatedTab data gets pushed
+
+    //this will likely be deleted
+    await queryHistoryItem(objectToPush2.time, supabaseAccessToken);
+
+    // we update the activated tab after the activatedTab data gets pushed
     await updateActivatedTab();
     //we update the highlighted tab after the highlightedTab data gets pushed
     await updateHighlightedTab();
@@ -650,6 +666,7 @@ chrome.history.onVisited.addListener(async function (historyItem: HistoryItem) {
   }
 });
 
+// processURL function
 function processURL(urlObject) {
   // push the new URL onto the loadBalancer array
   loadBalancer.push(urlObject);
@@ -672,6 +689,7 @@ function processURL(urlObject) {
   }
 }
 
+// strip URL of 'www.' prefix and trailing slash
 function normalizeURL(url) {
   if (!url) {
     return url;
@@ -686,6 +704,7 @@ function normalizeURL(url) {
   return normalizedURL;
 }
 
+// remove any consecutive duplicate URLs
 function removeConsecutiveDuplicates(loadBalancer) {
   let i = 0;
   while (i < loadBalancer.length - 1) {
@@ -741,6 +760,7 @@ function removeConsecutiveDuplicates(loadBalancer) {
   }
 }
 
+// upload URLs
 function uploadAll(loadBalancer) {
   //update the chrome.tabs.get function
   // updateActivatedTab();
@@ -754,17 +774,20 @@ function uploadAll(loadBalancer) {
     validateToken(supabaseAccessToken, supabaseExpiration);
     await uploadHistory(supabaseAccessToken, userId, urlObject);
   });
+  console.log("this should be the end");
 }
 
 let loadBalancer = [];
 let uploadTimeout = null;
 
+// activated tab init
 const activatedTab = {
   info: null,
   tabId: null,
   lastQueryTime: null,
 };
 
+// highlighted tab init
 const highlightedTab = {
   info: null,
   tabId: null,
@@ -835,7 +858,8 @@ async function updateHighlightedTab() {
   });
 }
 
-async function queryByTime(supabaseAccessToken, time, tabId) {
+// query the last historyItem to add the link information before it needs to be updated
+async function queryByTime(supabaseAccessToken, time, tabId, objectToPush2) {
   const SUPABASE_URL_ = `https://veedcagxcbafijuaremr.supabase.co/rest/v1/historyItems?select=*&time=lte.${time}&tabId=eq.${tabId}&order=time.desc`;
 
   const response = await fetch(SUPABASE_URL_, {
@@ -843,7 +867,7 @@ async function queryByTime(supabaseAccessToken, time, tabId) {
     headers: {
       apikey: import.meta.env.VITE_APP_SUPABASE_ANON_KEY,
       Authorization: `Bearer ${supabaseAccessToken}`,
-      Range: "0-9",
+      Range: "0-1",
     },
   });
 
@@ -853,6 +877,72 @@ async function queryByTime(supabaseAccessToken, time, tabId) {
   }
 
   const data = await response.json();
+  // const referralUrlId = data[0].id;
   console.log("data from queryByTime", data);
+  // console.log("referralUrlId", referralUrlId);
+  if (data.length > 0) {
+    objectToPush2.link.source = data[0].id;
+    objectToPush2.link.target = objectToPush2.id;
+    // we don't need this anymore
+    // const { supabaseAccessToken, supabaseExpiration } = await getSupabaseKeys();
+    // validateToken(supabaseAccessToken, supabaseExpiration);
+    // updateLink(data[0].id, objectId, supabaseAccessToken);
+  }
+
+  return data;
+}
+
+// did not work and now defunct
+async function updateLink(referralUrlId, objectId, supabaseAccessToken) {
+  console.log("inside updateLink");
+  console.log("referralUrlId", referralUrlId);
+  console.log("objectId", objectId);
+
+  const SUPABASE_URL_ = `https://veedcagxcbafijuaremr.supabase.co/rest/v1/historyItems?id=eq.${objectId}`; // Use a horizontal filter in the URL
+
+  const response = await fetch(SUPABASE_URL_, {
+    method: "PATCH", // Change method to PATCH for updating
+    headers: {
+      apikey: import.meta.env.VITE_APP_SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${supabaseAccessToken}`,
+      "Content-Type": "application/json",
+      Prefer: "return=minimal",
+    },
+    body: JSON.stringify({
+      link: { source: referralUrlId, target: objectId },
+      test: "test",
+    }), // Update endTime to the current timestamp
+  });
+
+  if (!response.ok) {
+    const errorResponse = await response.json();
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+}
+
+// did not work, not too sure why
+async function queryHistoryItem(historyItemTime, supabaseAccessToken) {
+  const SUPABASE_URL_ = `https://veedcagxcbafijuaremr.supabase.co/rest/v1/historyItems?select=*&time=eq.${historyItemTime}`;
+  console.log("queryHistoryItem");
+
+  const response = await fetch(SUPABASE_URL_, {
+    method: "GET",
+    headers: {
+      apikey: import.meta.env.VITE_APP_SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${supabaseAccessToken}`,
+      Range: "0-1",
+    },
+  });
+
+  if (!response.ok) {
+    const errorResponse = await response.json();
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+
+  const data = await response.json();
+  // const referralUrlId = data[0].id;
+  console.log("data from queryHistoryItem", data);
+  // console.log("referralUrlId", referralUrlId);
+  console.log("data", data);
   return data;
 }
