@@ -429,6 +429,30 @@ type TransitionType =
   | "keyword"
   | "keyword_generated";
 
+type WindowState =
+  | "normal"
+  | "minimized"
+  | "maximized"
+  | "fullscreen"
+  | "locked-fullscreen";
+
+type WindowType = "normal" | "popup" | "panel" | "app" | "devtools";
+
+interface Window {
+  alwaysOnTop: boolean;
+  focused: boolean;
+  height?: number;
+  id?: number;
+  incognito: boolean;
+  left?: number;
+  sessionId?: string;
+  state?: WindowState;
+  tabs?: Tab[];
+  top?: number;
+  type?: WindowType;
+  width?: number;
+}
+
 interface VisitItem {
   id: string;
   referringVisitId: string;
@@ -472,8 +496,54 @@ async function historyTabQuery(historyUrl, objectToPush2) {
     objectToPush2.tabStatus = tabs[0].status;
     objectToPush2.tabFaviconUrl = tabs[0].favIconUrl;
   }
+
+  // if (objectToPush2.tabWindowId != undefined) {
+  //   windowLengthQuery(tabs[0].windowId, objectToPush2);
+  // }
   return tabs;
 }
+
+// query the number of tabs in the tabWindowId
+async function windowLengthQuery(windowId, objectToPush2) {
+  const window = await promisify(chrome.tabs.query)({ windowId: windowId });
+  console.log("window", window);
+  console.log("windowLength", window.length);
+
+  if (window != undefined) {
+    const windowLength = window.length;
+    console.log("windowLength", windowLength);
+    objectToPush2.tabWindowLength = windowLength;
+  } else {
+    throw new Error(`No window found with ID ${windowId}`);
+  }
+}
+
+/* async function windowLengthQuery(windowId) {
+  const window = await promisify(chrome.windows.get)(windowId);
+  console.log("window", window);
+  
+  if (window != undefined) {
+    const windowLength = window.tabs.length;
+    console.log("windowLength", windowLength);
+    return windowLength;
+  } else {
+    throw new Error(`No window found with ID ${windowId}`);
+  }
+} */
+
+/* async function windowLengthQuery(windowId: number): Promise<number> {
+  const window: Window | undefined = await promisify(chrome.windows.get)(windowId);
+  console.log("window", window);
+  
+  if (window !== undefined && window.tabs !== undefined) {
+    const windowLength: number = window.tabs.length;
+    console.log("windowLength", windowLength);
+    return windowLength;
+  } else {
+    throw new Error(`No window found with ID ${windowId}`);
+  }
+}
+ */
 
 // query the active tab
 async function activeTabQuery(objectToPush2) {
@@ -540,6 +610,7 @@ chrome.history.onVisited.addListener(async function (historyItem: HistoryItem) {
     tabWindowId: null,
     tabId: null,
     tabStatus: null,
+    tabWindowLength: null,
     user_id: null,
     time: null,
     transitionType: null,
@@ -599,6 +670,10 @@ chrome.history.onVisited.addListener(async function (historyItem: HistoryItem) {
       getVisitsQuery(historyItem, objectToPush2),
     ]);
 
+    if (objectToPush2.tabWindowId != undefined || null) {
+      await windowLengthQuery(objectToPush2.tabWindowId, objectToPush2);
+    }
+
     if (
       objectToPush2.tabFaviconUrl == "" ||
       objectToPush2.tabFaviconUrl == null ||
@@ -612,7 +687,7 @@ chrome.history.onVisited.addListener(async function (historyItem: HistoryItem) {
       objectToPush2.activeTabId != objectToPush2.tabId &&
       objectToPush2.tabWindowId == objectToPush2.activeTabWindowId
     ) {
-      objectToPush2.linkTransition = "newTab";
+      objectToPush2.linkTransition = "openInNewTab";
     }
 
     if (objectToPush2.activeTabId == objectToPush2.tabId) {
@@ -623,27 +698,28 @@ chrome.history.onVisited.addListener(async function (historyItem: HistoryItem) {
       objectToPush2.linkTransition = "sameTab";
     }
 
-    if (objectToPush2.transitionType == "auto-toplevel") {
+    /* if (objectToPush2.transitionType == "auto-toplevel") {
       objectToPush2.linkTransition = "newTab";
-    }
+    } */
 
-    console.log("before queryByTime");
+    console.log("before queryByTimeTabIdAndWindowId");
 
     const { supabaseAccessToken, supabaseExpiration, userId } =
       await getSupabaseKeys();
     validateToken(supabaseAccessToken, supabaseExpiration);
-    await queryByTime(
+    await queryByTimeTabIdAndWindowId(
       supabaseAccessToken,
       objectToPush2.time,
       highlightedTab.tabId,
-      objectToPush2
+      objectToPush2,
+      objectToPush2.tabWindowId
     );
 
-    console.log("after queryByTime");
+    console.log("after queryByTimeTabIdAndWindowId");
     console.log("objectToPush2", objectToPush2);
 
+    // processURL function to deal with duplicate and replicate URLs
     await processURL(objectToPush2);
-    //we update the activated tab after the activatedTab data gets pushed
 
     //this will likely be deleted
     await queryHistoryItem(objectToPush2.time, supabaseAccessToken);
@@ -719,6 +795,12 @@ function removeConsecutiveDuplicates(loadBalancer) {
     if (loadBalancer[i].transitionType === "form_submit") {
       loadBalancer.splice(i, 1);
       console.log("Removed URL with form_submit transitionType");
+    }
+
+    // remove if there's no tabId or tabWindowId
+    if (loadBalancer[i].tabId == null || loadBalancer[i].tabWindowId == null) {
+      loadBalancer.splice(i, 1);
+      console.log("removed entry with null tabId and or null activeTabId");
     }
 
     if (currentURL === nextURL) {
@@ -859,8 +941,14 @@ async function updateHighlightedTab() {
 }
 
 // query the last historyItem to add the link information before it needs to be updated
-async function queryByTime(supabaseAccessToken, time, tabId, objectToPush2) {
-  const SUPABASE_URL_ = `https://veedcagxcbafijuaremr.supabase.co/rest/v1/historyItems?select=*&time=lte.${time}&tabId=eq.${tabId}&order=time.desc`;
+async function queryByTimeTabIdAndWindowId(
+  supabaseAccessToken,
+  time,
+  tabId,
+  objectToPush2,
+  tabWindowId
+) {
+  const SUPABASE_URL_ = `https://veedcagxcbafijuaremr.supabase.co/rest/v1/historyItems?select=*&time=lte.${time}&tabId=eq.${tabId}&tabWindowId=eq.${tabWindowId}&order=time.desc`;
 
   const response = await fetch(SUPABASE_URL_, {
     method: "GET",
@@ -878,7 +966,7 @@ async function queryByTime(supabaseAccessToken, time, tabId, objectToPush2) {
 
   const data = await response.json();
   // const referralUrlId = data[0].id;
-  console.log("data from queryByTime", data);
+  console.log("data from queryByTimeAndTabId", data);
   // console.log("referralUrlId", referralUrlId);
   if (data.length > 0) {
     objectToPush2.link.source = data[0].id;
@@ -889,8 +977,24 @@ async function queryByTime(supabaseAccessToken, time, tabId, objectToPush2) {
     // updateLink(data[0].id, objectId, supabaseAccessToken);
   }
 
+  if (data.length == 0) {
+    if (
+      objectToPush2.linkTransition != "controlNewTab" ||
+      objectToPush2.linkTransition != "generated" ||
+      objectToPush2.linkTransition != "typed"
+    ) {
+      if (objectToPush2.tabWindowLength == 1) {
+        objectToPush2.linkTransition = "newWindow";
+
+        newWindowLinkAppend(time, objectToPush2);
+      }
+    }
+  }
+
   return data;
 }
+
+/* ------------------------------------------------------------------------------------------------------------------ */
 
 // did not work and now defunct
 async function updateLink(referralUrlId, objectId, supabaseAccessToken) {
@@ -944,5 +1048,39 @@ async function queryHistoryItem(historyItemTime, supabaseAccessToken) {
   console.log("data from queryHistoryItem", data);
   // console.log("referralUrlId", referralUrlId);
   console.log("data", data);
+  return data;
+}
+
+// this query is now working
+async function newWindowLinkAppend(time, objectToPush2) {
+  const { supabaseAccessToken, supabaseExpiration, userId } =
+    await getSupabaseKeys();
+  validateToken(supabaseAccessToken, supabaseExpiration);
+
+  // const SUPABASE_URL_ = `https://veedcagxcbafijuaremr.supabase.co/rest/v1/historyItems?select=*&time=lte.${time}&tabId=eq&order=time.desc`;
+  const SUPABASE_URL_ = `https://veedcagxcbafijuaremr.supabase.co/rest/v1/historyItems?select=*&time=lte.${time}&order=time.desc`;
+
+  const response = await fetch(SUPABASE_URL_, {
+    method: "GET",
+    headers: {
+      apikey: import.meta.env.VITE_APP_SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${supabaseAccessToken}`,
+      Range: "0-1",
+    },
+  });
+
+  if (!response.ok) {
+    const errorResponse = await response.json();
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+
+  const data = await response.json();
+  // const referralUrlId = data[0].id;
+  console.log("data from queryByTimeAndTabId", data);
+  // console.log("referralUrlId", referralUrlId);
+
+  objectToPush2.link.source = data[0].id;
+  objectToPush2.link.target = objectToPush2.id;
+
   return data;
 }
