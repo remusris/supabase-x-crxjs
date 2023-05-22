@@ -336,7 +336,7 @@ async function updateSessionToServer(boolean) {
     await getSupabaseKeys();
   validateToken(supabaseAccessToken, supabaseExpiration);
 
-  const SUPABASE_URL_ = `https://veedcagxcbafijuaremr.supabase.co/rest/v1/profiles?=eq.user_id=${userId}`;
+  const SUPABASE_URL_ = `https://veedcagxcbafijuaremr.supabase.co/rest/v1/profiles?user_id=eq.${userId}`;
 
   console.log("updateSessionToServer");
 
@@ -345,6 +345,8 @@ async function updateSessionToServer(boolean) {
     headers: {
       apikey: import.meta.env.VITE_APP_SUPABASE_ANON_KEY,
       Authorization: `Bearer ${supabaseAccessToken}`,
+      "Content-Type": "application/json",
+      Prefer: "return=minimal",
     },
     body: JSON.stringify({ activeBrowsingSession: boolean }),
   });
