@@ -1,5 +1,3 @@
-console.log("this is the content script");
-
 console.log("THIS IS THE CONTENT SCRIPT GUYS");
 
 function activityDetected(event) {

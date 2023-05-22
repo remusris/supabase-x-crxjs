@@ -33,6 +33,7 @@ type Message =
 
 type ResponseCallback = (data: any) => void;
 
+// init chrome storage keys
 const chromeStorageKeys = {
   supabaseAccessToken: "supabaseAccessToken",
   supabaseRefreshToken: "supabaseRefreshToken",
@@ -143,6 +144,12 @@ async function handleMessage(
         refresh_token: refreshToken,
       });
 
+      // If error exists, return it immediately
+      if (error) {
+        response({ data: null, error: error.message });
+        return;
+      }
+
       console.log("token data", data);
 
       // If either data.session or data.user is null, log the user out
@@ -225,7 +232,7 @@ let inactivityTimeout;
 console.log("isSessionActive", isSessionActive);
 
 // listening to content script to restart timer
-chrome.runtime.onMessage.addListener(function (message, sender, sendResponse) {
+chrome.runtime.onMessage.addListener(function (message) {
   if (message.type === "userActive") {
     resetInactivityTimeout();
   }
@@ -314,7 +321,9 @@ async function startSessionUpload(supabaseAccessToken, userId) {
 
   if (!response.ok) {
     const errorResponse = await response.json();
-    throw new Error(`HTTP error! status: ${response.status}`);
+    throw new Error(
+      `HTTP error! status: ${response.status}, message: ${errorResponse.message}`
+    );
   }
 }
 
@@ -339,7 +348,9 @@ async function endSessionUpload() {
 
   if (!response.ok) {
     const errorResponse = await response.json();
-    throw new Error(`HTTP error! status: ${response.status}`);
+    throw new Error(
+      `HTTP error! status: ${response.status}, message: ${errorResponse.message}`
+    );
   }
 }
 
@@ -389,7 +400,9 @@ async function uploadHistory(supabaseAccessToken, userId, objectToPush2) {
 
   if (!response.ok) {
     const errorResponse = await response.json();
-    throw new Error(`HTTP error! status: ${response.status}`);
+    throw new Error(
+      `HTTP error! status: ${response.status}, message: ${errorResponse.message}`
+    );
   }
 }
 
@@ -416,6 +429,28 @@ function getFaviconUrl(url, size = 64) {
   }
 }
 
+type objectToPush = {
+  id: string | null;
+  url: string | null;
+  node: string | null;
+  link: { source: string | null; target: string | null };
+  activeTabId: number | null;
+  activeTabWindowId: number | null;
+  title: string | null;
+  tabFaviconUrl: string | null;
+  tabWindowId: number | null;
+  tabId: number | null;
+  tabStatus: string | null;
+  tabWindowLength: number | null;
+  user_id: string | null;
+  time: number | null;
+  transitionType: string | null;
+  linkTransition: string | null;
+  activatedTab: { lastQueryTime: number | null; url: string | null };
+  highlightedTab: { lastQueryTime: number | null; url: string | null };
+  session_id: string | null;
+};
+
 type TransitionType =
   | "link"
   | "typed"
@@ -429,29 +464,29 @@ type TransitionType =
   | "keyword"
   | "keyword_generated";
 
-type WindowState =
-  | "normal"
-  | "minimized"
-  | "maximized"
-  | "fullscreen"
-  | "locked-fullscreen";
+// type WindowState =
+//   | "normal"
+//   | "minimized"
+//   | "maximized"
+//   | "fullscreen"
+//   | "locked-fullscreen";
 
-type WindowType = "normal" | "popup" | "panel" | "app" | "devtools";
+// type WindowType = "normal" | "popup" | "panel" | "app" | "devtools";
 
-interface Window {
-  alwaysOnTop: boolean;
-  focused: boolean;
-  height?: number;
-  id?: number;
-  incognito: boolean;
-  left?: number;
-  sessionId?: string;
-  state?: WindowState;
-  tabs?: Tab[];
-  top?: number;
-  type?: WindowType;
-  width?: number;
-}
+// interface Window {
+//   alwaysOnTop: boolean;
+//   focused: boolean;
+//   height?: number;
+//   id?: number;
+//   incognito: boolean;
+//   left?: number;
+//   sessionId?: string;
+//   state?: WindowState;
+//   tabs?: Tab[];
+//   top?: number;
+//   type?: WindowType;
+//   width?: number;
+// }
 
 interface VisitItem {
   id: string;
@@ -471,7 +506,7 @@ type HistoryItem = {
 };
 
 // make the async chrome.tabs.query function return a promise
-function promisify(func) {
+/* function promisify(func) {
   return function (...args) {
     return new Promise((resolve, reject) => {
       func(...args, function (response) {
@@ -483,10 +518,27 @@ function promisify(func) {
       });
     });
   };
+} */
+
+// modified promisify function that scares me
+function promisify<T, A extends any[]>(
+  func: (...args: [...A, (response: T) => void]) => void
+): (...args: A) => Promise<T> {
+  return function (...args: A) {
+    return new Promise<T>((resolve, reject) => {
+      func(...args, function (response: T) {
+        if (chrome.runtime.lastError) {
+          reject(chrome.runtime.lastError);
+        } else {
+          resolve(response);
+        }
+      });
+    });
+  };
 }
 
 // query the tab with the historyItem
-async function historyTabQuery(historyUrl, objectToPush2) {
+/* async function historyTabQuery(historyUrl, objectToPush2) {
   const tabs = await promisify(chrome.tabs.query)({ url: historyUrl });
   console.log("tabs", tabs);
   if (tabs[0] != undefined) {
@@ -501,11 +553,65 @@ async function historyTabQuery(historyUrl, objectToPush2) {
   //   windowLengthQuery(tabs[0].windowId, objectToPush2);
   // }
   return tabs;
+} */
+
+// query the tab with the historyItem
+async function historyTabQuery(
+  historyUrl: string,
+  objectToPush2: objectToPush
+) {
+  const tabs = await promisify<Tab[], [{ url: string }]>(chrome.tabs.query)({
+    url: historyUrl,
+  });
+  console.log("tabs", tabs);
+  if (tabs[0] != undefined) {
+    console.log("historyTabsQuery", tabs);
+    objectToPush2.tabId = tabs[0].id;
+    objectToPush2.tabWindowId = tabs[0].windowId;
+    objectToPush2.tabStatus = tabs[0].status;
+    objectToPush2.tabFaviconUrl = tabs[0].favIconUrl;
+  }
+
+  return tabs;
 }
 
-// query the number of tabs in the tabWindowId
-async function windowLengthQuery(windowId, objectToPush2) {
-  const window = await promisify(chrome.tabs.query)({ windowId: windowId });
+interface MutedInfo {
+  muted: boolean;
+  reason?: string;
+}
+
+type TabStatus = "unloaded" | "loading" | "complete";
+
+interface Tab {
+  active: boolean;
+  audible?: boolean;
+  autoDiscardable: boolean;
+  discarded: boolean;
+  favIconUrl?: string;
+  groupId: number;
+  height?: number;
+  highlighted: boolean;
+  id?: number;
+  incognito: boolean;
+  index: number;
+  mutedInfo?: MutedInfo;
+  openerTabId?: number;
+  pendingUrl?: string;
+  pinned: boolean;
+  selected: boolean;
+  sessionId?: string;
+  status?: TabStatus;
+  title?: string;
+  url?: string;
+  width?: number;
+  windowId: number;
+}
+
+// query the number of tabs in the tabWindowId -- old version without types
+/* async function windowLengthQuery(windowId, objectToPush2) {
+  const window: Tab[] = await promisify(chrome.tabs.query)({
+    windowId: windowId,
+  });
   console.log("window", window);
   console.log("windowLength", window.length);
 
@@ -516,8 +622,26 @@ async function windowLengthQuery(windowId, objectToPush2) {
   } else {
     throw new Error(`No window found with ID ${windowId}`);
   }
+} */
+
+// query the number of tabs in the tabWindowId
+async function windowLengthQuery(windowId: number, objectToPush2: any) {
+  const windowTabs = await promisify<Tab[], [{ windowId: number }]>(
+    chrome.tabs.query
+  )({ windowId: windowId });
+  console.log("window", windowTabs);
+  console.log("windowLength", windowTabs.length);
+
+  if (windowTabs != undefined) {
+    const windowLength = windowTabs.length;
+    console.log("windowLength", windowLength);
+    objectToPush2.tabWindowLength = windowLength;
+  } else {
+    throw new Error(`No window found with ID ${windowId}`);
+  }
 }
 
+// old version without types that wouldn't let me compile
 /* async function windowLengthQuery(windowId) {
   const window = await promisify(chrome.windows.get)(windowId);
   console.log("window", window);
@@ -531,6 +655,7 @@ async function windowLengthQuery(windowId, objectToPush2) {
   }
 } */
 
+// chrome.windows.get version
 /* async function windowLengthQuery(windowId: number): Promise<number> {
   const window: Window | undefined = await promisify(chrome.windows.get)(windowId);
   console.log("window", window);
@@ -545,9 +670,27 @@ async function windowLengthQuery(windowId, objectToPush2) {
 }
  */
 
-// query the active tab
-async function activeTabQuery(objectToPush2) {
+// query the active tab -- old version without types
+/* async function activeTabQuery(objectToPush2) {
   const tabs = await promisify(chrome.tabs.query)({
+    active: true,
+    lastFocusedWindow: true,
+    highlighted: true,
+  });
+  if (tabs[0] != undefined) {
+    console.log("activeTab info with highlighted true", tabs[0]);
+    objectToPush2.activeTabId = tabs[0].id;
+    objectToPush2.activeTabWindowId = tabs[0].windowId;
+  }
+  return tabs;
+} */
+
+// query the active tab
+async function activeTabQuery(objectToPush2: objectToPush) {
+  const tabs = await promisify<
+    Tab[],
+    [{ active: boolean; lastFocusedWindow: boolean; highlighted: boolean }]
+  >(chrome.tabs.query)({
     active: true,
     lastFocusedWindow: true,
     highlighted: true,
@@ -630,15 +773,16 @@ chrome.history.onVisited.addListener(async function (historyItem: HistoryItem) {
   //adding the sessionId
   objectToPush2.session_id = activeSession.id;
 
-  //activatedTab test
-  // objectToPush2.activatedTab.lastQueryTime = activatedTab.lastQueryTime;
-  // objectToPush2.activatedTab.url = activatedTab.info.url;
+  // not using the promise.fulfill method
+  /* //activatedTab test
+  objectToPush2.activatedTab.lastQueryTime = activatedTab.lastQueryTime;
+  objectToPush2.activatedTab.url = activatedTab.info.url;
 
   //highlightedTab test
-  // objectToPush2.highlightedTab.lastQueryTime = highlightedTab.lastQueryTime;
-  // objectToPush2.highlightedTab.url = highlightedTab.info.url;
+  objectToPush2.highlightedTab.lastQueryTime = highlightedTab.lastQueryTime;
+  objectToPush2.highlightedTab.url = highlightedTab.info.url;
 
-  /* await historyTabQuery(historyItem.url, objectToPush2);
+  await historyTabQuery(historyItem.url, objectToPush2);
   await activeTabQuery(objectToPush2);
   await getVisitsQuery(historyItem, objectToPush2);
 
@@ -704,8 +848,7 @@ chrome.history.onVisited.addListener(async function (historyItem: HistoryItem) {
 
     console.log("before queryByTimeTabIdAndWindowId");
 
-    const { supabaseAccessToken, supabaseExpiration, userId } =
-      await getSupabaseKeys();
+    const { supabaseAccessToken, supabaseExpiration } = await getSupabaseKeys();
     validateToken(supabaseAccessToken, supabaseExpiration);
     await queryByTimeTabIdAndWindowId(
       supabaseAccessToken,
@@ -715,6 +858,17 @@ chrome.history.onVisited.addListener(async function (historyItem: HistoryItem) {
       objectToPush2.tabWindowId
     );
 
+    if (
+      objectToPush2.linkTransition == "openInNewTab" &&
+      objectToPush2.tabWindowId != null
+    ) {
+      await newTabLinkAppend(
+        objectToPush2.time,
+        objectToPush2,
+        objectToPush2.tabWindowId
+      );
+    }
+
     console.log("after queryByTimeTabIdAndWindowId");
     console.log("objectToPush2", objectToPush2);
 
@@ -722,7 +876,7 @@ chrome.history.onVisited.addListener(async function (historyItem: HistoryItem) {
     await processURL(objectToPush2);
 
     //this will likely be deleted
-    await queryHistoryItem(objectToPush2.time, supabaseAccessToken);
+    // await queryHistoryItem(objectToPush2.time, supabaseAccessToken);
 
     // we update the activated tab after the activatedTab data gets pushed
     await updateActivatedTab();
@@ -961,7 +1115,9 @@ async function queryByTimeTabIdAndWindowId(
 
   if (!response.ok) {
     const errorResponse = await response.json();
-    throw new Error(`HTTP error! status: ${response.status}`);
+    throw new Error(
+      `HTTP error! status: ${response.status}, message: ${errorResponse.message}`
+    );
   }
 
   const data = await response.json();
@@ -979,7 +1135,7 @@ async function queryByTimeTabIdAndWindowId(
 
   if (data.length == 0) {
     if (
-      objectToPush2.linkTransition != "controlNewTab" ||
+      objectToPush2.linkTransition != "openInNewTab" ||
       objectToPush2.linkTransition != "generated" ||
       objectToPush2.linkTransition != "typed"
     ) {
@@ -997,7 +1153,7 @@ async function queryByTimeTabIdAndWindowId(
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 // did not work and now defunct
-async function updateLink(referralUrlId, objectId, supabaseAccessToken) {
+/* async function updateLink(referralUrlId, objectId, supabaseAccessToken) {
   console.log("inside updateLink");
   console.log("referralUrlId", referralUrlId);
   console.log("objectId", objectId);
@@ -1020,12 +1176,14 @@ async function updateLink(referralUrlId, objectId, supabaseAccessToken) {
 
   if (!response.ok) {
     const errorResponse = await response.json();
-    throw new Error(`HTTP error! status: ${response.status}`);
+    throw new Error(
+      `HTTP error! status: ${response.status}, message: ${errorResponse.message}`
+    );
   }
-}
+} */
 
 // did not work, not too sure why
-async function queryHistoryItem(historyItemTime, supabaseAccessToken) {
+/* async function queryHistoryItem(historyItemTime, supabaseAccessToken) {
   const SUPABASE_URL_ = `https://veedcagxcbafijuaremr.supabase.co/rest/v1/historyItems?select=*&time=eq.${historyItemTime}`;
   console.log("queryHistoryItem");
 
@@ -1040,7 +1198,9 @@ async function queryHistoryItem(historyItemTime, supabaseAccessToken) {
 
   if (!response.ok) {
     const errorResponse = await response.json();
-    throw new Error(`HTTP error! status: ${response.status}`);
+    throw new Error(
+      `HTTP error! status: ${response.status}, message: ${errorResponse.message}`
+    );
   }
 
   const data = await response.json();
@@ -1049,12 +1209,11 @@ async function queryHistoryItem(historyItemTime, supabaseAccessToken) {
   // console.log("referralUrlId", referralUrlId);
   console.log("data", data);
   return data;
-}
+} */
 
-// this query is now working
+// when a newWindow event is detected this gets appended
 async function newWindowLinkAppend(time, objectToPush2) {
-  const { supabaseAccessToken, supabaseExpiration, userId } =
-    await getSupabaseKeys();
+  const { supabaseAccessToken, supabaseExpiration } = await getSupabaseKeys();
   validateToken(supabaseAccessToken, supabaseExpiration);
 
   // const SUPABASE_URL_ = `https://veedcagxcbafijuaremr.supabase.co/rest/v1/historyItems?select=*&time=lte.${time}&tabId=eq&order=time.desc`;
@@ -1071,7 +1230,9 @@ async function newWindowLinkAppend(time, objectToPush2) {
 
   if (!response.ok) {
     const errorResponse = await response.json();
-    throw new Error(`HTTP error! status: ${response.status}`);
+    throw new Error(
+      `HTTP error! status: ${response.status}, message: ${errorResponse.message}`
+    );
   }
 
   const data = await response.json();
@@ -1081,6 +1242,43 @@ async function newWindowLinkAppend(time, objectToPush2) {
 
   objectToPush2.link.source = data[0].id;
   objectToPush2.link.target = objectToPush2.id;
+
+  return data;
+}
+
+// when a newTab linkTransition is detected, the link data gets appended to the objectToPush2 object
+async function newTabLinkAppend(time, objectToPush2, windowId) {
+  const { supabaseAccessToken, supabaseExpiration } = await getSupabaseKeys();
+  validateToken(supabaseAccessToken, supabaseExpiration);
+
+  // const SUPABASE_URL_ = `https://veedcagxcbafijuaremr.supabase.co/rest/v1/historyItems?select=*&time=lte.${time}&tabId=eq&order=time.desc`;
+  const SUPABASE_URL_ = `https://veedcagxcbafijuaremr.supabase.co/rest/v1/historyItems?select=*&time=lte.${time}&tabWindowId=eq.${windowId}&order=time.desc`;
+
+  const response = await fetch(SUPABASE_URL_, {
+    method: "GET",
+    headers: {
+      apikey: import.meta.env.VITE_APP_SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${supabaseAccessToken}`,
+      Range: "0-1",
+    },
+  });
+
+  if (!response.ok) {
+    const errorResponse = await response.json();
+    throw new Error(
+      `HTTP error! status: ${response.status}, message: ${errorResponse.message}`
+    );
+  }
+
+  const data = await response.json();
+  // const referralUrlId = data[0].id;
+  console.log("data from queryByTimeAndTabId", data);
+  // console.log("referralUrlId", referralUrlId);
+
+  if (data[0] != undefined && data.length > 0) {
+    objectToPush2.link.source = data[0].id;
+    objectToPush2.link.target = objectToPush2.id;
+  }
 
   return data;
 }
