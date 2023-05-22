@@ -228,6 +228,7 @@ let activeSession = {
 };
 let isSessionActive = false;
 let inactivityTimeout;
+let serverSessionActiveStatus = null;
 
 console.log("isSessionActive", isSessionActive);
 
@@ -253,13 +254,113 @@ function isActiveSessionChecker(historyItem) {
   console.log("inside isActiveSessionChecker");
   console.log("isSessionActive", isSessionActive);
 
+  if (serverSessionActiveStatus == true && isSessionActive == false) {
+    isSessionActive = true;
+    getActiveSessionFromServer()
+  }
+
   if (isSessionActive == false) {
     console.log("session started");
     resetActiveSession();
     activeSession.startTime = historyItem.lastVisitTime;
     createSessionId();
     isSessionActive = true;
+    updateSessionToServer(true);
   }
+}
+
+// check for active session from the server
+async function activeSessionServerChecker() {
+  const { supabaseAccessToken, supabaseExpiration } = await getSupabaseKeys();
+  validateToken(supabaseAccessToken, supabaseExpiration);
+
+  const SUPABASE_URL_ = `https://veedcagxcbafijuaremr.supabase.co/rest/v1/profiles?select=activeBrowsingSession`;
+
+  const response = await fetch(SUPABASE_URL_, {
+    method: "GET",
+    headers: {
+      apikey: import.meta.env.VITE_APP_SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${supabaseAccessToken}`,
+    },
+  });
+
+  if (!response.ok) {
+    const errorResponse = await response.json();
+    throw new Error(
+      `HTTP error! status: ${response.status}, message: ${errorResponse.message}`
+    );
+  }
+
+  const data = await response.json();
+  console.log("data from activeSessionServerChecker", data);
+
+  serverSessionActiveStatus = data[0].activeBrowsingSession;
+  return data;
+}
+
+// get active session from server
+async function getActiveSessionFromServer() {
+  const { supabaseAccessToken, supabaseExpiration } = await getSupabaseKeys();
+  validateToken(supabaseAccessToken, supabaseExpiration);
+
+  const SUPABASE_URL_ = `https://veedcagxcbafijuaremr.supabase.co/rest/v1/browsingSessions?select=*&order=time.desc`;
+
+  const response = await fetch(SUPABASE_URL_, {
+    method: "GET",
+    headers: {
+      apikey: import.meta.env.VITE_APP_SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${supabaseAccessToken}`,
+      Range: "0",
+    },
+  });
+
+  if (!response.ok) {
+    const errorResponse = await response.json();
+    throw new Error(
+      `HTTP error! status: ${response.status}, message: ${errorResponse.message}`
+    );
+  }
+
+  const data = await response.json();
+  console.log("data from getActiveSessionFromServer", data);
+  if (data[0] != undefined) {
+    activeSession.id = data[0].id;
+    activeSession.startTime = data[0].startTime;
+    return data;
+  }
+}
+
+// update the session status to the server
+async function updateSessionToServer(boolean) {
+  const { supabaseAccessToken, supabaseExpiration, userId } =
+    await getSupabaseKeys();
+  validateToken(supabaseAccessToken, supabaseExpiration);
+
+  const SUPABASE_URL_ = `https://veedcagxcbafijuaremr.supabase.co/rest/v1/profiles?=eq.user_id=${userId}`;
+
+  console.log("updateSessionToServer");
+
+  const response = await fetch(SUPABASE_URL_, {
+    method: "GET",
+    headers: {
+      apikey: import.meta.env.VITE_APP_SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${supabaseAccessToken}`,
+    },
+    body: JSON.stringify({ activeBrowsingSession: boolean }),
+  });
+
+  if (!response.ok) {
+    const errorResponse = await response.json();
+    throw new Error(
+      `HTTP error! status: ${response.status}, message: ${errorResponse.message}`
+    );
+  }
+
+  const data = await response.json();
+  console.log("data from activeSessionServerChecker", data);
+
+  serverSessionActiveStatus = data[0].activeBrowsingSession;
+  return data;
 }
 
 // reset inactivity timer
@@ -274,6 +375,7 @@ function resetInactivityTimeout() {
       activeSession.endTime = Date.now();
       console.log("end session upload");
       endSessionUpload();
+      updateSessionToServer(false);
       isSessionActive = false;
     }
   }, 120000); // 120 seconds
@@ -295,6 +397,9 @@ async function createSessionId() {
 
 // timer needs to start once the service worker is loaded
 resetInactivityTimeout();
+
+// need to check the server if there's an active session
+activeSessionServerChecker();
 
 // upload the start session
 async function startSessionUpload(supabaseAccessToken, userId) {
@@ -625,7 +730,10 @@ interface Tab {
 } */
 
 // query the number of tabs in the tabWindowId
-async function windowLengthQuery(windowId: number, objectToPush2: any) {
+async function windowLengthQuery(
+  windowId: number,
+  objectToPush2: objectToPush
+) {
   const windowTabs = await promisify<Tab[], [{ windowId: number }]>(
     chrome.tabs.query
   )({ windowId: windowId });
