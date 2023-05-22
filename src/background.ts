@@ -256,7 +256,7 @@ function isActiveSessionChecker(historyItem) {
 
   if (serverSessionActiveStatus == true && isSessionActive == false) {
     isSessionActive = true;
-    getActiveSessionFromServer()
+    getActiveSessionFromServer();
   }
 
   if (isSessionActive == false) {
@@ -341,7 +341,7 @@ async function updateSessionToServer(boolean) {
   console.log("updateSessionToServer");
 
   const response = await fetch(SUPABASE_URL_, {
-    method: "GET",
+    method: "PATCH",
     headers: {
       apikey: import.meta.env.VITE_APP_SUPABASE_ANON_KEY,
       Authorization: `Bearer ${supabaseAccessToken}`,
