@@ -219,27 +219,55 @@ chrome.runtime.onMessage.addListener((msg, sender, response) => {
   return true;
 });
 
-// init the sessions
+// init the sessions -- this is created within the createSession function instead
 let activeSession = {
   startTime: null,
   endTime: null,
   id: null,
   user_id: null,
 };
-let isSessionActive = false;
-let inactivityTimeout;
-let serverSessionActiveStatus = null;
 
-console.log("isSessionActive", isSessionActive);
+// this is no longer needed, we just query the server for the last session, using descending order
+// let isSessionActive = false;
+
+// more basic implementation of an activeUser
+let isUserActive = false;
+
+// this is polling sever function
+async function updateServer() {
+  if (isUserActive) {
+    //function to update endSessionTime to server -- this will have to be deleted
+    const currentTime = Date.now();
+    getLastActiveSession(currentTime);
+
+    isUserActive = false;
+  } else {
+    console.log("user is not active in the last minute");
+  }
+}
+
+// this is polling for checking the active session
+setInterval(updateServer, 60000);
+
+// older implementations that might not make it
+/* let inactivityTimeout;
+let serverSessionActiveStatus = null; */
+
+// will likely remove
+// console.log("isSessionActive", isSessionActive);
 
 // listening to content script to restart timer
 chrome.runtime.onMessage.addListener(function (message) {
   if (message.type === "userActive") {
-    resetInactivityTimeout();
+    // this is the old way of doing it
+    // resetInactivityTimeout();
+
+    // now when the interval is triggered, we check the server for the last session
+    isUserActive = true;
   }
 });
 
-// reset active session
+// reset active session -- still needed and used
 function resetActiveSession() {
   activeSession = {
     startTime: null,
@@ -249,8 +277,8 @@ function resetActiveSession() {
   };
 }
 
-// check for active session
-function isActiveSessionChecker(historyItem) {
+// check for active session == this will be ousted with and replaced
+/* function isActiveSessionChecker(historyItem) {
   console.log("inside isActiveSessionChecker");
   console.log("isSessionActive", isSessionActive);
 
@@ -267,10 +295,10 @@ function isActiveSessionChecker(historyItem) {
     isSessionActive = true;
     updateSessionToServer(true);
   }
-}
+} */
 
-// check for active session from the server
-async function activeSessionServerChecker() {
+// check for active session from the server -- won't be needed anymore
+/* async function activeSessionServerChecker() {
   const { supabaseAccessToken, supabaseExpiration } = await getSupabaseKeys();
   validateToken(supabaseAccessToken, supabaseExpiration);
 
@@ -296,10 +324,10 @@ async function activeSessionServerChecker() {
 
   serverSessionActiveStatus = data[0].activeBrowsingSession;
   return data;
-}
+} */
 
-// get active session from server
-async function getActiveSessionFromServer() {
+// get active session from server -- this will be remade and renamed
+/* async function getActiveSessionFromServer() {
   const { supabaseAccessToken, supabaseExpiration } = await getSupabaseKeys();
   validateToken(supabaseAccessToken, supabaseExpiration);
 
@@ -328,10 +356,10 @@ async function getActiveSessionFromServer() {
     activeSession.startTime = data[0].startTime;
     return data;
   }
-}
+} */
 
-// update the session status to the server
-async function updateSessionToServer(boolean) {
+// update the session status to the server -- this will no longer be needed
+/* async function updateSessionToServer(boolean) {
   const { supabaseAccessToken, supabaseExpiration, userId } =
     await getSupabaseKeys();
   validateToken(supabaseAccessToken, supabaseExpiration);
@@ -364,9 +392,10 @@ async function updateSessionToServer(boolean) {
   serverSessionActiveStatus = data[0].activeBrowsingSession;
   return data;
 }
+ */
 
-// reset inactivity timer
-function resetInactivityTimeout() {
+// reset inactivity timer -- this is no longer needed
+/* function  resetInactivityTimeout() {
   if (inactivityTimeout) {
     clearTimeout(inactivityTimeout);
     console.log("timer has been cleared");
@@ -381,10 +410,10 @@ function resetInactivityTimeout() {
       isSessionActive = false;
     }
   }, 120000); // 120 seconds
-}
+} */
 
-// create a session ID
-async function createSessionId() {
+// create a session ID -- won't be needed anymore
+/* async function createSessionId() {
   activeSession.id = uuidv4();
   // activeSession.sessionStart = Date.now();
 
@@ -395,16 +424,16 @@ async function createSessionId() {
     await getSupabaseKeys();
   validateToken(supabaseAccessToken, supabaseExpiration);
   await startSessionUpload(supabaseAccessToken, userId);
-}
+} */
 
-// timer needs to start once the service worker is loaded
-resetInactivityTimeout();
+// timer needs to start once the service worker is loaded -- this is no longer needed
+// resetInactivityTimeout();
 
-// need to check the server if there's an active session
-activeSessionServerChecker();
+// need to check the server if there's an active session -- this is no longer needed and or active
+// activeSessionServerChecker();
 
-// upload the start session
-async function startSessionUpload(supabaseAccessToken, userId) {
+// upload the start session -- this is being replaced now
+/* async function startSessionUpload(supabaseAccessToken, userId) {
   const SUPABASE_URL_ =
     "https://veedcagxcbafijuaremr.supabase.co/rest/v1/browsingSessions";
 
@@ -432,10 +461,10 @@ async function startSessionUpload(supabaseAccessToken, userId) {
       `HTTP error! status: ${response.status}, message: ${errorResponse.message}`
     );
   }
-}
+} */
 
-// upload the end session time
-async function endSessionUpload() {
+// upload the end session time -- this is being replaced now
+/* async function endSessionUpload() {
   const { supabaseAccessToken, supabaseExpiration } = await getSupabaseKeys();
   validateToken(supabaseAccessToken, supabaseExpiration);
 
@@ -459,7 +488,7 @@ async function endSessionUpload() {
       `HTTP error! status: ${response.status}, message: ${errorResponse.message}`
     );
   }
-}
+} */
 
 // get the supabase keys
 async function getSupabaseKeys() {
@@ -536,6 +565,7 @@ function getFaviconUrl(url, size = 64) {
   }
 }
 
+// setting the type for the object that gets uploaded
 type objectToPush = {
   id: string | null;
   url: string | null;
@@ -558,6 +588,7 @@ type objectToPush = {
   session_id: string | null;
 };
 
+// TransitionType
 type TransitionType =
   | "link"
   | "typed"
@@ -854,34 +885,48 @@ chrome.history.onVisited.addListener(async function (historyItem: HistoryItem) {
   const objectToPush2 = {
     id: null,
     url: null,
-    node: null,
-    link: { source: null, target: null },
+    user_id: null,
+    url_id: null,
+    domain_id: null,
     activeTabId: null,
-    activeTabWindowId: null,
     title: null,
+    transitionType: null,
+    activeTabWindowId: null,
+    linkTransition: null,
     tabFaviconUrl: null,
-    tabWindowId: null,
     tabId: null,
     tabStatus: null,
+    tabWindowId: null,
     tabWindowLength: null,
-    user_id: null,
     time: null,
-    transitionType: null,
-    linkTransition: null,
+    session_id: null,
     activatedTab: { lastQueryTime: null, url: null },
     highlightedTab: { lastQueryTime: null, url: null },
-    session_id: null,
+    link: { source: null, target: null },
+    node: null,
   };
 
-  isActiveSessionChecker(historyItem);
+  // this will be replaced and removed
+  /* isActiveSessionChecker(historyItem); */
+
+  // get the last activeSession from the server
+  const session_id = await getLastActiveSession(historyItem.lastVisitTime);
+
+  // get the domainId and urlId from the server -- this is elsewhere in the code, it could still be here but we moved on -- now in the appendIdsToEntry function
+  // const domainId = await getDomainId(historyItem.url);
+  // const urlId = await getUrlId(historyItem.url, domainId);
+
+  // append the domain_id and url_id -- this is elsewhere in the code, it could still be here but we moved on -- now in the appendIdsToEntry function
+  // objectToPush2.domain_id = domainId;
+  // objectToPush2.url_id = urlId;
 
   objectToPush2.url = historyItem.url;
   objectToPush2.title = historyItem.title;
   objectToPush2.time = historyItem.lastVisitTime;
   objectToPush2.id = uuidv4();
 
-  //adding the sessionId
-  objectToPush2.session_id = activeSession.id;
+  //adding the sessionId that should have been grabbed from getLastActiveSession()
+  objectToPush2.session_id = session_id;
 
   // not using the promise.fulfill method
   /* //activatedTab test
@@ -1007,7 +1052,7 @@ chrome.history.onVisited.addListener(async function (historyItem: HistoryItem) {
 });
 
 // processURL function
-function processURL(urlObject) {
+async function processURL(urlObject) {
   // push the new URL onto the loadBalancer array
   loadBalancer.push(urlObject);
   console.log("loadBalancer", loadBalancer);
@@ -1015,13 +1060,18 @@ function processURL(urlObject) {
   const uploadDelay = 1500;
 
   // remove any consecutive duplicate URLs
-  removeConsecutiveDuplicates(loadBalancer);
+  await removeConsecutiveDuplicates(loadBalancer);
+
+  // Apply appendIdsToEntry to each element in loadBalancer array
+  // await Promise.all(loadBalancer.map((entry) => appendIdsToEntry(entry)));
+  await appendIdsToEntry(loadBalancer);
 
   // if there isn't already a timeout running, start one
   if (!uploadTimeout) {
     uploadTimeout = setTimeout(function () {
       // upload the URLs and clear the array
       uploadAll(loadBalancer);
+
       loadBalancer = [];
       // clear the timeout
       uploadTimeout = null;
@@ -1044,8 +1094,25 @@ function normalizeURL(url) {
   return normalizedURL;
 }
 
-// remove any consecutive duplicate URLs
-function removeConsecutiveDuplicates(loadBalancer) {
+// strip URL of 'www.' prefix and trailing slash
+function normalizeDomain(url) {
+  if (!url) {
+    return url;
+  }
+
+  const urlObj = new URL(url);
+  let normalizedDomain = urlObj.hostname;
+
+  // Remove 'www.' prefix if exists
+  normalizedDomain = normalizedDomain.replace(/^www\./, "");
+
+  console.log("inside the normalizedDomain function", normalizedDomain);
+
+  return normalizedDomain;
+}
+
+// remove any consecutive duplicate URLs -- this will be modified
+async function removeConsecutiveDuplicates(loadBalancer) {
   let i = 0;
   while (i < loadBalancer.length - 1) {
     const currentURL = normalizeURL(loadBalancer[i].url);
@@ -1106,12 +1173,78 @@ function removeConsecutiveDuplicates(loadBalancer) {
   }
 }
 
+// adding domainId and urlId to entry -- OLD that isn't working
+/* async function appendIdsToEntry(entry) {
+  console.log("inside appendIdsToEntry - entry", entry);
+  console.log("inside appendIdsToEntry - entry.url", entry.url);
+
+  // Get the domainId and urlId from the server
+  const domainId = await getDomainId(entry.url);
+  const urlId = await getUrlId(entry.url, domainId);
+
+  // Append the domain_id and url_id
+  entry.domain_id = domainId;
+  entry.url_id = urlId;
+
+  console.log("inside the appendIdsToEntry function - entry", entry);
+  console.log(
+    "inside the appendIdsToEntry function - entry.url_id",
+    entry.url_id
+  );
+  console.log(
+    "inside the appendIdsToEntry function - entry.domain_id",
+    entry.domain_id
+  );
+} */
+
+// adding domainId and urlId to entry -- NOT WORKING AT ALL
+/* function appendIdsToEntry(entry) {
+  console.log("inside appendIdsToEntry - entry", entry);
+  console.log("inside appendIdsToEntry - entry.url", entry.url);
+
+  // Get the domainId and urlId from the server
+  const domainPromise = getDomainId(entry.url);
+  const urlPromise = domainPromise.then((domainId) =>
+    getUrlId(entry.url, domainId)
+  );
+
+  // Return a promise that resolves when both domainId and urlId are fetched
+  return Promise.all([domainPromise, urlPromise]).then(([domainId, urlId]) => {
+    // Append the domain_id and url_id
+    entry.domain_id = domainId;
+    entry.url_id = urlId;
+
+    console.log("inside the appendIdsToEntry function - entry", entry);
+    console.log(
+      "inside the appendIdsToEntry function - entry.url_id",
+      entry.url_id
+    );
+    console.log(
+      "inside the appendIdsToEntry function - entry.domain_id",
+      entry.domain_id
+    );
+  });
+} */
+
+async function appendIdsToEntry(loadBalancer) {
+  loadBalancer.forEach(async (entry) => {
+    console.log("inside appendIdsToEntry - entry", entry);
+    console.log("inside appendIdsToEntry - entry.url", entry.url);
+
+    // Get the domainId and urlId from the server
+    const domainId = await getDomainId(entry.url);
+    const urlId = await getUrlId(entry.url, domainId);
+
+    // Append the domain_id and url_id
+    entry.domain_id = domainId;
+    entry.url_id = urlId;
+  });
+}
+
 // upload URLs
 function uploadAll(loadBalancer) {
   //update the chrome.tabs.get function
   // updateActivatedTab();
-
-  // Call the Supabase upload function for each unique URL object
 
   console.log("inside uploadAll");
   loadBalancer.forEach(async (urlObject) => {
@@ -1260,7 +1393,7 @@ async function queryByTimeTabIdAndWindowId(
   return data;
 }
 
-/* ------------------------------------------------------------------------------------------------------------------ */
+/* ------------------------------------------------------------------------------------------------------------------------------------- */
 
 // did not work and now defunct
 /* async function updateLink(referralUrlId, objectId, supabaseAccessToken) {
@@ -1391,4 +1524,523 @@ async function newTabLinkAppend(time, objectToPush2, windowId) {
   }
 
   return data;
+}
+
+/* -------------------------------------------------------------------------------------------------------------------------------------- */
+// the new rearchitecture stuff
+
+//these FOUR functions below have become defunct
+
+/* // check if the domain exists
+async function domainChecker(urlObject) {
+  const { supabaseAccessToken, supabaseExpiration } = await getSupabaseKeys();
+  validateToken(supabaseAccessToken, supabaseExpiration);
+
+  //strip url to the domain
+  const domainToCheck = normalizeDomain(urlObject.url);
+
+  const SUPABASE_URL_ = `https://veedcagxcbafijuaremr.supabase.co/rest/v1/domains?select=*&domain=eq.${domainChecker}`;
+
+  const response = await fetch(SUPABASE_URL_, {
+    method: "GET",
+    headers: {
+      apikey: import.meta.env.VITE_APP_SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${supabaseAccessToken}`,
+      Range: "0",
+    },
+  });
+
+  if (!response.ok) {
+    const errorResponse = await response.json();
+    throw new Error(
+      `HTTP error! status: ${response.status}, message: ${errorResponse.message}`
+    );
+  }
+
+  const data = await response.json();
+  console.log("data from domainChecker", data);
+
+  if (data[0] == undefined || data[0] == null) {
+    domainUploader(domainToCheck);
+  }
+
+  if ((data.length > 0 && data[0] != undefined) || data[0] != null) {
+    urlChecker(urlObject);
+  }
+
+  return;
+}
+
+// upload the domain if it doesn't exist
+async function domainUploader(domainToCheck) {
+  const { supabaseAccessToken, supabaseExpiration, userId } =
+    await getSupabaseKeys();
+  validateToken(supabaseAccessToken, supabaseExpiration);
+
+  const SUPABASE_URL_ =
+    "https://veedcagxcbafijuaremr.supabase.co/rest/v1/domains";
+
+  const domainObject = { id: uuidv4(), domain: domainToCheck, userId: userId };
+
+  console.log("inside createNewSession");
+
+  const response = await fetch(SUPABASE_URL_, {
+    method: "POST",
+    headers: {
+      apikey: import.meta.env.VITE_APP_SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${supabaseAccessToken}`,
+      "Content-Type": "application/json",
+      Prefer: "return=minimal",
+    },
+    body: JSON.stringify(domainObject),
+  });
+
+  if (!response.ok) {
+    const errorResponse = await response.json();
+    throw new Error(
+      `HTTP error! status: ${response.status}, message: ${errorResponse.message}`
+    );
+  }
+}
+
+// check if the url exists
+async function urlChecker(urlObject) {
+  const { supabaseAccessToken, supabaseExpiration } = await getSupabaseKeys();
+  validateToken(supabaseAccessToken, supabaseExpiration);
+
+  //strip url to the domain
+  const urlToCheck = normalizeURL(urlObject.url);
+
+  const SUPABASE_URL_ = `https://veedcagxcbafijuaremr.supabase.co/rest/v1/urls?select=*&url=eq.${urlToCheck}`;
+
+  const response = await fetch(SUPABASE_URL_, {
+    method: "GET",
+    headers: {
+      apikey: import.meta.env.VITE_APP_SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${supabaseAccessToken}`,
+      Range: "0",
+    },
+  });
+
+  if (!response.ok) {
+    const errorResponse = await response.json();
+    throw new Error(
+      `HTTP error! status: ${response.status}, message: ${errorResponse.message}`
+    );
+  }
+
+  const data = await response.json();
+  console.log("data from urlChecker", data);
+
+  if (data[0] == undefined || data[0] == null) {
+    urlUploader(urlObject);
+  }
+
+  if (data[0] != undefined || data[0] != null) {
+    //append a session to the url -- not going to do this anymore though
+    urlSessionUpdater(urlObject);
+  }
+}
+
+// upload the url if it doesn't exist
+async function urlUploader(urlToObject) {
+  const { supabaseAccessToken, supabaseExpiration, userId } =
+    await getSupabaseKeys();
+  validateToken(supabaseAccessToken, supabaseExpiration);
+
+  const SUPABASE_URL_ = "https://veedcagxcbafijuaremr.supabase.co/rest/v1/urls";
+
+  const urlObject = { id: uuidv4(), url: urlToObject, userId: userId };
+  const randomId = uuidv4();
+
+  console.log("inside createNewSession");
+
+  const response = await fetch(SUPABASE_URL_, {
+    method: "POST",
+    headers: {
+      apikey: import.meta.env.VITE_APP_SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${supabaseAccessToken}`,
+      "Content-Type": "application/json",
+      Prefer: "return=minimal",
+    },
+    body: JSON.stringify({}),
+  });
+
+  if (!response.ok) {
+    const errorResponse = await response.json();
+    throw new Error(
+      `HTTP error! status: ${response.status}, message: ${errorResponse.message}`
+    );
+  }
+} */
+
+// update the url the sessionId -- this will be ignored and removed
+/* async function urlSessionUpdater() {
+
+} */
+
+// checks if any sessions exists -- this will have to be deleted
+/* async function updateServerSessionChecker() {
+  const { supabaseAccessToken, supabaseExpiration } = await getSupabaseKeys();
+  validateToken(supabaseAccessToken, supabaseExpiration);
+
+  const SUPABASE_URL_ = `https://veedcagxcbafijuaremr.supabase.co/rest/v1/browsingSessions?select=*&order=time.desc`;
+
+  const response = await fetch(SUPABASE_URL_, {
+    method: "GET",
+    headers: {
+      apikey: import.meta.env.VITE_APP_SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${supabaseAccessToken}`,
+      Range: "0",
+    },
+  });
+
+  if (!response.ok) {
+    const errorResponse = await response.json();
+    throw new Error(
+      `HTTP error! status: ${response.status}, message: ${errorResponse.message}`
+    );
+  }
+
+  const data = await response.json();
+  console.log("data from sessionExistsChecker", data);
+
+  // establishing the current time
+  const currentTime = Date.now();
+
+  if (data[0] == undefined || data[0] == null) {
+    // not needed really but why not
+    resetActiveSession();
+
+    // since there is no entry in the database, create a new session
+    const currentTime = Date.now();
+    createNewSession(currentTime);
+  }
+
+  if (data[0] != undefined || data[0] != null && data.lenght > 0) {
+    const endSessionTime = data[0].endTime;
+
+    // if currentTime is less than endSessionTime, update endSessionTime
+    if (currentTime <= endSessionTime) {
+      updateEndSession();
+    }
+
+    // if current time is greater than endSessionTime create new session
+    if (currentTime > endSessionTime) {
+      resetActiveSession();
+      createNewSession(currentTime);
+    }
+  }
+} */
+
+// create a new session
+async function createNewSession(baseTime) {
+  const { supabaseAccessToken, supabaseExpiration, userId } =
+    await getSupabaseKeys();
+  validateToken(supabaseAccessToken, supabaseExpiration);
+
+  const SUPABASE_URL_ =
+    "https://veedcagxcbafijuaremr.supabase.co/rest/v1/browsingSessions";
+
+  const randomId = uuidv4();
+
+  // move on from this method
+  /* activeSession.id = randomId;
+  activeSession.user_id = userId;
+
+  activeSession.startTime = baseTime;
+  // this value will continue to get updated every 30 seconds
+  activeSession.endTime = baseTime + 120000; */
+
+  // Prepare the session data
+  const sessionData = {
+    id: randomId,
+    user_id: userId,
+    startTime: baseTime,
+    endTime: baseTime + 120000,
+  };
+
+  console.log("inside createNewSession");
+
+  const response = await fetch(SUPABASE_URL_, {
+    method: "POST",
+    headers: {
+      apikey: import.meta.env.VITE_APP_SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${supabaseAccessToken}`,
+      "Content-Type": "application/json",
+      Prefer: "return=minimal",
+    },
+    body: JSON.stringify(sessionData),
+  });
+
+  activeSession = sessionData;
+
+  if (!response.ok) {
+    const errorResponse = await response.json();
+    throw new Error(
+      `HTTP error! status: ${response.status}, message: ${errorResponse.message}`
+    );
+  }
+
+  return sessionData;
+}
+
+// update the EndSessionTime
+async function updateEndSession(sessionId) {
+  const { supabaseAccessToken, supabaseExpiration } = await getSupabaseKeys();
+  validateToken(supabaseAccessToken, supabaseExpiration);
+
+  /* const sessionId = activeSession.id; // Get the ID of the session to update */
+  const SUPABASE_URL_ = `https://veedcagxcbafijuaremr.supabase.co/rest/v1/browsingSessions?id=eq.${sessionId}`; // Use a horizontal filter in the URL
+  const endTimeQuantity = Date.now() + 120000; // Set the new endTime to 2 minutes from now
+
+  const response = await fetch(SUPABASE_URL_, {
+    method: "PATCH", // Change method to PATCH for updating
+    headers: {
+      apikey: import.meta.env.VITE_APP_SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${supabaseAccessToken}`,
+      "Content-Type": "application/json",
+      Prefer: "return=minimal",
+    },
+    body: JSON.stringify({ endTime: endTimeQuantity }), // Update endTime to the current timestamp
+  });
+
+  if (!response.ok) {
+    const errorResponse = await response.json();
+    throw new Error(
+      `HTTP error! status: ${response.status}, message: ${errorResponse.message}`
+    );
+  }
+}
+
+// get the last active session from the endSession
+async function getLastActiveSession(baseTime) {
+  const { supabaseAccessToken, supabaseExpiration } = await getSupabaseKeys();
+  validateToken(supabaseAccessToken, supabaseExpiration);
+
+  const SUPABASE_URL_ = `https://veedcagxcbafijuaremr.supabase.co/rest/v1/browsingSessions?select=*&order=startTime.desc`;
+
+  const response = await fetch(SUPABASE_URL_, {
+    method: "GET",
+    headers: {
+      apikey: import.meta.env.VITE_APP_SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${supabaseAccessToken}`,
+      Range: "0",
+    },
+  });
+
+  if (!response.ok) {
+    const errorResponse = await response.json();
+    throw new Error(
+      `HTTP error! status: ${response.status}, message: ${errorResponse.message}`
+    );
+  }
+
+  const data = await response.json();
+  console.log("data from getActiveSessionFromServer", data);
+
+  if (!data[0]) {
+    resetActiveSession();
+    const newSession = await createNewSession(baseTime);
+    return newSession.id;
+  }
+
+  if (data[0].endTime < baseTime) {
+    resetActiveSession();
+    const newSession = await createNewSession(baseTime);
+    return newSession.id; // You might want to return something here
+  }
+
+  if (data[0].endTime > baseTime) {
+    updateEndSession(data[0].id);
+    return data[0].id;
+  }
+
+  // this is the old method
+  /* if (data[0] != undefined || (data[0] != null && data.length > 0)) {
+    if (data[0].endTime < baseTime) {
+      resetActiveSession();
+      createNewSession(baseTime);
+    }
+
+    if (data[0].endTime > baseTime) {
+      // by grabbing the session from the server it puts less emphasis on the local storage
+      // activeSession = data[0];
+
+      updateEndSession(data[0].id);
+      return data[0].id;
+    }
+  } */
+}
+
+/* These are the core functions for url and domain indexes */
+
+// domainId from the domain table
+async function getDomainId(urlObject) {
+  const { supabaseAccessToken, supabaseExpiration } = await getSupabaseKeys();
+  validateToken(supabaseAccessToken, supabaseExpiration);
+
+  console.log("getDomainId urlObject", urlObject);
+  //strip url to the domain
+  const domainToCheck = normalizeDomain(urlObject);
+
+  const SUPABASE_URL_ = `https://veedcagxcbafijuaremr.supabase.co/rest/v1/domains?select=*&domain=eq.${domainToCheck}`;
+
+  const response = await fetch(SUPABASE_URL_, {
+    method: "GET",
+    headers: {
+      apikey: import.meta.env.VITE_APP_SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${supabaseAccessToken}`,
+      Range: "0",
+    },
+  });
+
+  if (!response.ok) {
+    const errorResponse = await response.json();
+    throw new Error(
+      `HTTP error! status: ${response.status}, message: ${errorResponse.message}`
+    );
+  }
+
+  const data = await response.json();
+
+  // return domainId if it exists
+  if (data && data.length > 0) {
+    return data[0].id; // assuming 'id' is the name of the field containing the domain id
+  }
+
+  console.log("domainToCheck", domainToCheck);
+
+  // If no domain found, create a new one
+  const newDomainId = await createDomainId(domainToCheck);
+
+  return newDomainId;
+}
+
+// create a new domain
+async function createDomainId(domainToUpload) {
+  const { supabaseAccessToken, supabaseExpiration, userId } =
+    await getSupabaseKeys();
+  validateToken(supabaseAccessToken, supabaseExpiration);
+
+  console.log("createDomainId - domainToUpload", domainToUpload);
+
+  const SUPABASE_URL_ =
+    "https://veedcagxcbafijuaremr.supabase.co/rest/v1/domains";
+
+  const domainId = uuidv4();
+
+  const domainObject = {
+    id: domainId,
+    domain: domainToUpload,
+    user_id: userId,
+  };
+
+  console.log("inside createNewSession");
+
+  const response = await fetch(SUPABASE_URL_, {
+    method: "POST",
+    headers: {
+      apikey: import.meta.env.VITE_APP_SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${supabaseAccessToken}`,
+      "Content-Type": "application/json",
+      Prefer: "return=minimal",
+    },
+    body: JSON.stringify(domainObject),
+  });
+
+  if (!response.ok) {
+    const errorResponse = await response.json();
+    throw new Error(
+      `HTTP error! status: ${response.status}, message: ${errorResponse.message}`
+    );
+  }
+
+  // Return the ID of the newly created domain
+  return domainId;
+}
+
+// urlId from the url table
+async function getUrlId(urlObject, domainId) {
+  const { supabaseAccessToken, supabaseExpiration } = await getSupabaseKeys();
+  validateToken(supabaseAccessToken, supabaseExpiration);
+
+  //strip url to the url by normalizing it
+  const urlToCheck = normalizeURL(urlObject);
+  console.log("urlToCheck in getUrlId", urlToCheck);
+
+  const SUPABASE_URL_ = `https://veedcagxcbafijuaremr.supabase.co/rest/v1/urls?select=*&url=eq.${urlToCheck}&domain_id=eq.${domainId}`;
+
+  const response = await fetch(SUPABASE_URL_, {
+    method: "GET",
+    headers: {
+      apikey: import.meta.env.VITE_APP_SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${supabaseAccessToken}`,
+      Range: "0",
+    },
+  });
+
+  if (!response.ok) {
+    const errorResponse = await response.json();
+    throw new Error(
+      `HTTP error! status: ${response.status}, message: ${errorResponse.message}`
+    );
+  }
+
+  const data = await response.json();
+
+  // return domainId if it exists
+  if (data && data.length > 0) {
+    return data[0].id; // assuming 'id' is the name of the field containing the domain id
+  }
+
+  if (data.length < 1) {
+    const newUrlId = await createUrlId(urlObject, domainId);
+    console.log("a new urlId was created");
+
+    return newUrlId;
+  }
+
+  // If no domain found, create a new one
+}
+
+// create a new urlId for the url table
+async function createUrlId(url, domainId) {
+  const { supabaseAccessToken, supabaseExpiration, userId } =
+    await getSupabaseKeys();
+  validateToken(supabaseAccessToken, supabaseExpiration);
+
+  const SUPABASE_URL_ = "https://veedcagxcbafijuaremr.supabase.co/rest/v1/urls";
+
+  const normalizedUrl = normalizeURL(url);
+  console.log("normalizedUrl inside createUrlId", normalizedUrl);
+
+  const urlId = uuidv4();
+
+  const urlObject = {
+    id: urlId,
+    domain_id: domainId,
+    user_id: userId,
+    url: normalizedUrl,
+  };
+
+  console.log("inside createNewSession");
+
+  const response = await fetch(SUPABASE_URL_, {
+    method: "POST",
+    headers: {
+      apikey: import.meta.env.VITE_APP_SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${supabaseAccessToken}`,
+      "Content-Type": "application/json",
+      Prefer: "return=minimal",
+    },
+    body: JSON.stringify(urlObject),
+  });
+
+  if (!response.ok) {
+    const errorResponse = await response.json();
+    throw new Error(
+      `HTTP error! status: ${response.status}, message: ${errorResponse.message}`
+    );
+  }
 }
