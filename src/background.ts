@@ -32,12 +32,12 @@ const highlightedTab = {
 };
 
 // init the sessions -- this is created within the createSession function instead
-let activeSession = {
+/* let activeSession = {
   startTime: null,
   endTime: null,
   id: null,
   user_id: null,
-};
+}; */
 
 // Create a queue for handling HistoryItems
 const historyItemQueue = [];
@@ -261,15 +261,15 @@ chrome.runtime.onMessage.addListener(function (message) {
   }
 });
 
-// reset active session -- still needed and used
-function resetActiveSession() {
+// reset active session -- still needed and used -- not needed anymore
+/* function resetActiveSession() {
   activeSession = {
     startTime: null,
     endTime: null,
     id: null,
     user_id: null,
   };
-}
+} */
 
 // get the supabase keys
 async function getSupabaseKeys() {
@@ -1056,7 +1056,8 @@ async function createNewSession(baseTime) {
     body: JSON.stringify(sessionData),
   });
 
-  activeSession = sessionData;
+  // I don't think will be needed anymore
+  // activeSession = sessionData;
 
   if (!response.ok) {
     const errorResponse = await response.json();
@@ -1123,13 +1124,15 @@ async function getLastActiveSession(baseTime) {
   console.log("data from getActiveSessionFromServer", data);
 
   if (!data[0]) {
-    resetActiveSession();
+    // I don't think we're doing any more local saves
+    // resetActiveSession();
     const newSession = await createNewSession(baseTime);
     return newSession.id;
   }
 
   if (data[0].endTime < baseTime) {
-    resetActiveSession();
+    // I don't think we're doing any more local saves
+    // resetActiveSession();
     const newSession = await createNewSession(baseTime);
     return newSession.id; // You might want to return something here
   }
