@@ -1,37 +1,47 @@
 // import browser from "webextension-polyfill";
 import supabase from "./lib/supabase-client";
 import { v4 as uuidv4 } from "uuid";
+import {
+  VisitItem,
+  HistoryItem,
+  objectToPush,
+  Tab,
+  Message,
+  ResponseCallback,
+} from "./types";
 
-type Message =
-  | {
-      action: "getSession" | "signout" | "refresh";
-      value: null;
-    }
-  | {
-      action: "signup" | "signin";
-      value: {
-        email: string;
-        password: string;
-      };
-    }
-  | {
-      action: "addSmoothie";
-      value: {
-        title: string;
-        method: string;
-        rating: number;
-      };
-    }
-  | {
-      action: "fetchSmoothies";
-      value: null;
-    }
-  | {
-      action: "fetchTopics";
-      value: null;
-    };
+// init variables, loadBalancer for storing historyItems, uploadTimeout for the setTimeout function
+let loadBalancer = [];
+let uploadTimeout = null;
 
-type ResponseCallback = (data: any) => void;
+// more basic implementation of an activeUser
+let isUserActive = false;
+
+// activated tab init
+const activatedTab = {
+  info: null,
+  tabId: null,
+  lastQueryTime: null,
+};
+
+// highlighted tab init
+const highlightedTab = {
+  info: null,
+  tabId: null,
+  lastQueryTime: null,
+};
+
+// init the sessions -- this is created within the createSession function instead
+let activeSession = {
+  startTime: null,
+  endTime: null,
+  id: null,
+  user_id: null,
+};
+
+// Create a queue for handling HistoryItems
+const historyItemQueue = [];
+let isProcessing = false;
 
 // init chrome storage keys
 const chromeStorageKeys = {
@@ -41,6 +51,9 @@ const chromeStorageKeys = {
   supabaseExpiration: "supabaseExpiration",
   supabaseUserId: "supabaseUserId",
 };
+
+// end of variable inits
+/* ---------------------------------------------------------------------------------------------------------------------------------------------------------------- */
 
 //grabbing keys from local.storage
 async function getKeyFromStorage(key) {
@@ -219,24 +232,12 @@ chrome.runtime.onMessage.addListener((msg, sender, response) => {
   return true;
 });
 
-// init the sessions -- this is created within the createSession function instead
-let activeSession = {
-  startTime: null,
-  endTime: null,
-  id: null,
-  user_id: null,
-};
-
-// this is no longer needed, we just query the server for the last session, using descending order
-// let isSessionActive = false;
-
-// more basic implementation of an activeUser
-let isUserActive = false;
-
 // this is polling sever function
 async function updateServer() {
   if (isUserActive) {
     //function to update endSessionTime to server -- this will have to be deleted
+    console.log("updateServer function is called");
+
     const currentTime = Date.now();
     getLastActiveSession(currentTime);
 
@@ -248,13 +249,6 @@ async function updateServer() {
 
 // this is polling for checking the active session
 setInterval(updateServer, 60000);
-
-// older implementations that might not make it
-/* let inactivityTimeout;
-let serverSessionActiveStatus = null; */
-
-// will likely remove
-// console.log("isSessionActive", isSessionActive);
 
 // listening to content script to restart timer
 chrome.runtime.onMessage.addListener(function (message) {
@@ -276,219 +270,6 @@ function resetActiveSession() {
     user_id: null,
   };
 }
-
-// check for active session == this will be ousted with and replaced
-/* function isActiveSessionChecker(historyItem) {
-  console.log("inside isActiveSessionChecker");
-  console.log("isSessionActive", isSessionActive);
-
-  if (serverSessionActiveStatus == true && isSessionActive == false) {
-    isSessionActive = true;
-    getActiveSessionFromServer();
-  }
-
-  if (isSessionActive == false) {
-    console.log("session started");
-    resetActiveSession();
-    activeSession.startTime = historyItem.lastVisitTime;
-    createSessionId();
-    isSessionActive = true;
-    updateSessionToServer(true);
-  }
-} */
-
-// check for active session from the server -- won't be needed anymore
-/* async function activeSessionServerChecker() {
-  const { supabaseAccessToken, supabaseExpiration } = await getSupabaseKeys();
-  validateToken(supabaseAccessToken, supabaseExpiration);
-
-  const SUPABASE_URL_ = `https://veedcagxcbafijuaremr.supabase.co/rest/v1/profiles?select=activeBrowsingSession`;
-
-  const response = await fetch(SUPABASE_URL_, {
-    method: "GET",
-    headers: {
-      apikey: import.meta.env.VITE_APP_SUPABASE_ANON_KEY,
-      Authorization: `Bearer ${supabaseAccessToken}`,
-    },
-  });
-
-  if (!response.ok) {
-    const errorResponse = await response.json();
-    throw new Error(
-      `HTTP error! status: ${response.status}, message: ${errorResponse.message}`
-    );
-  }
-
-  const data = await response.json();
-  console.log("data from activeSessionServerChecker", data);
-
-  serverSessionActiveStatus = data[0].activeBrowsingSession;
-  return data;
-} */
-
-// get active session from server -- this will be remade and renamed
-/* async function getActiveSessionFromServer() {
-  const { supabaseAccessToken, supabaseExpiration } = await getSupabaseKeys();
-  validateToken(supabaseAccessToken, supabaseExpiration);
-
-  const SUPABASE_URL_ = `https://veedcagxcbafijuaremr.supabase.co/rest/v1/browsingSessions?select=*&order=time.desc`;
-
-  const response = await fetch(SUPABASE_URL_, {
-    method: "GET",
-    headers: {
-      apikey: import.meta.env.VITE_APP_SUPABASE_ANON_KEY,
-      Authorization: `Bearer ${supabaseAccessToken}`,
-      Range: "0",
-    },
-  });
-
-  if (!response.ok) {
-    const errorResponse = await response.json();
-    throw new Error(
-      `HTTP error! status: ${response.status}, message: ${errorResponse.message}`
-    );
-  }
-
-  const data = await response.json();
-  console.log("data from getActiveSessionFromServer", data);
-  if (data[0] != undefined) {
-    activeSession.id = data[0].id;
-    activeSession.startTime = data[0].startTime;
-    return data;
-  }
-} */
-
-// update the session status to the server -- this will no longer be needed
-/* async function updateSessionToServer(boolean) {
-  const { supabaseAccessToken, supabaseExpiration, userId } =
-    await getSupabaseKeys();
-  validateToken(supabaseAccessToken, supabaseExpiration);
-
-  const SUPABASE_URL_ = `https://veedcagxcbafijuaremr.supabase.co/rest/v1/profiles?user_id=eq.${userId}`;
-
-  console.log("updateSessionToServer");
-
-  const response = await fetch(SUPABASE_URL_, {
-    method: "PATCH",
-    headers: {
-      apikey: import.meta.env.VITE_APP_SUPABASE_ANON_KEY,
-      Authorization: `Bearer ${supabaseAccessToken}`,
-      "Content-Type": "application/json",
-      Prefer: "return=minimal",
-    },
-    body: JSON.stringify({ activeBrowsingSession: boolean }),
-  });
-
-  if (!response.ok) {
-    const errorResponse = await response.json();
-    throw new Error(
-      `HTTP error! status: ${response.status}, message: ${errorResponse.message}`
-    );
-  }
-
-  const data = await response.json();
-  console.log("data from activeSessionServerChecker", data);
-
-  serverSessionActiveStatus = data[0].activeBrowsingSession;
-  return data;
-}
- */
-
-// reset inactivity timer -- this is no longer needed
-/* function  resetInactivityTimeout() {
-  if (inactivityTimeout) {
-    clearTimeout(inactivityTimeout);
-    console.log("timer has been cleared");
-  }
-  inactivityTimeout = setTimeout(() => {
-    console.log("timer has finished");
-    if (isSessionActive) {
-      activeSession.endTime = Date.now();
-      console.log("end session upload");
-      endSessionUpload();
-      updateSessionToServer(false);
-      isSessionActive = false;
-    }
-  }, 120000); // 120 seconds
-} */
-
-// create a session ID -- won't be needed anymore
-/* async function createSessionId() {
-  activeSession.id = uuidv4();
-  // activeSession.sessionStart = Date.now();
-
-  console.log("activeSession.sessionId", activeSession.id);
-  console.log("inside the createSessionId function");
-
-  const { supabaseAccessToken, supabaseExpiration, userId } =
-    await getSupabaseKeys();
-  validateToken(supabaseAccessToken, supabaseExpiration);
-  await startSessionUpload(supabaseAccessToken, userId);
-} */
-
-// timer needs to start once the service worker is loaded -- this is no longer needed
-// resetInactivityTimeout();
-
-// need to check the server if there's an active session -- this is no longer needed and or active
-// activeSessionServerChecker();
-
-// upload the start session -- this is being replaced now
-/* async function startSessionUpload(supabaseAccessToken, userId) {
-  const SUPABASE_URL_ =
-    "https://veedcagxcbafijuaremr.supabase.co/rest/v1/browsingSessions";
-
-  // const randomId = uuidv4();
-  // activeSession.id = randomId;
-  activeSession.user_id = userId;
-
-  console.log("inside startSessionUpload");
-  console.log("activeSession contents", activeSession);
-
-  const response = await fetch(SUPABASE_URL_, {
-    method: "POST",
-    headers: {
-      apikey: import.meta.env.VITE_APP_SUPABASE_ANON_KEY,
-      Authorization: `Bearer ${supabaseAccessToken}`,
-      "Content-Type": "application/json",
-      Prefer: "return=minimal",
-    },
-    body: JSON.stringify(activeSession),
-  });
-
-  if (!response.ok) {
-    const errorResponse = await response.json();
-    throw new Error(
-      `HTTP error! status: ${response.status}, message: ${errorResponse.message}`
-    );
-  }
-} */
-
-// upload the end session time -- this is being replaced now
-/* async function endSessionUpload() {
-  const { supabaseAccessToken, supabaseExpiration } = await getSupabaseKeys();
-  validateToken(supabaseAccessToken, supabaseExpiration);
-
-  const sessionId = activeSession.id; // Get the ID of the session to update
-  const SUPABASE_URL_ = `https://veedcagxcbafijuaremr.supabase.co/rest/v1/browsingSessions?id=eq.${sessionId}`; // Use a horizontal filter in the URL
-
-  const response = await fetch(SUPABASE_URL_, {
-    method: "PATCH", // Change method to PATCH for updating
-    headers: {
-      apikey: import.meta.env.VITE_APP_SUPABASE_ANON_KEY,
-      Authorization: `Bearer ${supabaseAccessToken}`,
-      "Content-Type": "application/json",
-      Prefer: "return=minimal",
-    },
-    body: JSON.stringify({ endTime: Date.now() }), // Update endTime to the current timestamp
-  });
-
-  if (!response.ok) {
-    const errorResponse = await response.json();
-    throw new Error(
-      `HTTP error! status: ${response.status}, message: ${errorResponse.message}`
-    );
-  }
-} */
 
 // get the supabase keys
 async function getSupabaseKeys() {
@@ -565,99 +346,6 @@ function getFaviconUrl(url, size = 64) {
   }
 }
 
-// setting the type for the object that gets uploaded
-type objectToPush = {
-  id: string | null;
-  url: string | null;
-  node: string | null;
-  link: { source: string | null; target: string | null };
-  activeTabId: number | null;
-  activeTabWindowId: number | null;
-  title: string | null;
-  tabFaviconUrl: string | null;
-  tabWindowId: number | null;
-  tabId: number | null;
-  tabStatus: string | null;
-  tabWindowLength: number | null;
-  user_id: string | null;
-  time: number | null;
-  transitionType: string | null;
-  linkTransition: string | null;
-  activatedTab: { lastQueryTime: number | null; url: string | null };
-  highlightedTab: { lastQueryTime: number | null; url: string | null };
-  session_id: string | null;
-};
-
-// TransitionType
-type TransitionType =
-  | "link"
-  | "typed"
-  | "auto_bookmark"
-  | "auto_subframe"
-  | "manual_subframe"
-  | "generated"
-  | "auto_toplevel"
-  | "form_submit"
-  | "reload"
-  | "keyword"
-  | "keyword_generated";
-
-// type WindowState =
-//   | "normal"
-//   | "minimized"
-//   | "maximized"
-//   | "fullscreen"
-//   | "locked-fullscreen";
-
-// type WindowType = "normal" | "popup" | "panel" | "app" | "devtools";
-
-// interface Window {
-//   alwaysOnTop: boolean;
-//   focused: boolean;
-//   height?: number;
-//   id?: number;
-//   incognito: boolean;
-//   left?: number;
-//   sessionId?: string;
-//   state?: WindowState;
-//   tabs?: Tab[];
-//   top?: number;
-//   type?: WindowType;
-//   width?: number;
-// }
-
-interface VisitItem {
-  id: string;
-  referringVisitId: string;
-  transition: TransitionType;
-  visitId: string;
-  visitTime?: number;
-}
-
-type HistoryItem = {
-  id: string;
-  lastVisitTime?: number;
-  title?: string;
-  typedCount: number;
-  url?: string;
-  visitCount: number;
-};
-
-// make the async chrome.tabs.query function return a promise
-/* function promisify(func) {
-  return function (...args) {
-    return new Promise((resolve, reject) => {
-      func(...args, function (response) {
-        if (chrome.runtime.lastError) {
-          reject(chrome.runtime.lastError);
-        } else {
-          resolve(response);
-        }
-      });
-    });
-  };
-} */
-
 // modified promisify function that scares me
 function promisify<T, A extends any[]>(
   func: (...args: [...A, (response: T) => void]) => void
@@ -675,173 +363,75 @@ function promisify<T, A extends any[]>(
   };
 }
 
-// query the tab with the historyItem
-/* async function historyTabQuery(historyUrl, objectToPush2) {
-  const tabs = await promisify(chrome.tabs.query)({ url: historyUrl });
-  console.log("tabs", tabs);
-  if (tabs[0] != undefined) {
-    console.log("historyTabsQuery", tabs);
-    objectToPush2.tabId = tabs[0].id;
-    objectToPush2.tabWindowId = tabs[0].windowId;
-    objectToPush2.tabStatus = tabs[0].status;
-    objectToPush2.tabFaviconUrl = tabs[0].favIconUrl;
-  }
-
-  // if (objectToPush2.tabWindowId != undefined) {
-  //   windowLengthQuery(tabs[0].windowId, objectToPush2);
-  // }
-  return tabs;
-} */
-
-// query the tab with the historyItem
+// query the tab with the historyItem -- with try/catch block
 async function historyTabQuery(
   historyUrl: string,
   objectToPush2: objectToPush
 ) {
-  const tabs = await promisify<Tab[], [{ url: string }]>(chrome.tabs.query)({
-    url: historyUrl,
-  });
-  console.log("tabs", tabs);
-  if (tabs[0] != undefined) {
-    console.log("historyTabsQuery", tabs);
-    objectToPush2.tabId = tabs[0].id;
-    objectToPush2.tabWindowId = tabs[0].windowId;
-    objectToPush2.tabStatus = tabs[0].status;
-    objectToPush2.tabFaviconUrl = tabs[0].favIconUrl;
+  try {
+    const tabs = await promisify<Tab[], [{ url: string }]>(chrome.tabs.query)({
+      url: historyUrl,
+    });
+    console.log("tabs", tabs);
+    if (tabs.length > 0) {
+      console.log("historyTabsQuery", tabs);
+      objectToPush2.tabId = tabs[0].id;
+      objectToPush2.tabWindowId = tabs[0].windowId;
+      objectToPush2.tabStatus = tabs[0].status;
+      objectToPush2.tabFaviconUrl = tabs[0].favIconUrl;
+    }
+    return tabs;
+  } catch (error) {
+    console.error(`Error querying tab: ${error.message}`);
   }
-
-  return tabs;
 }
 
-interface MutedInfo {
-  muted: boolean;
-  reason?: string;
-}
-
-type TabStatus = "unloaded" | "loading" | "complete";
-
-interface Tab {
-  active: boolean;
-  audible?: boolean;
-  autoDiscardable: boolean;
-  discarded: boolean;
-  favIconUrl?: string;
-  groupId: number;
-  height?: number;
-  highlighted: boolean;
-  id?: number;
-  incognito: boolean;
-  index: number;
-  mutedInfo?: MutedInfo;
-  openerTabId?: number;
-  pendingUrl?: string;
-  pinned: boolean;
-  selected: boolean;
-  sessionId?: string;
-  status?: TabStatus;
-  title?: string;
-  url?: string;
-  width?: number;
-  windowId: number;
-}
-
-// query the number of tabs in the tabWindowId -- old version without types
-/* async function windowLengthQuery(windowId, objectToPush2) {
-  const window: Tab[] = await promisify(chrome.tabs.query)({
-    windowId: windowId,
-  });
-  console.log("window", window);
-  console.log("windowLength", window.length);
-
-  if (window != undefined) {
-    const windowLength = window.length;
-    console.log("windowLength", windowLength);
-    objectToPush2.tabWindowLength = windowLength;
-  } else {
-    throw new Error(`No window found with ID ${windowId}`);
-  }
-} */
-
-// query the number of tabs in the tabWindowId
+// query the number of tabs in the tabWindowId -- with try/catch block
 async function windowLengthQuery(
   windowId: number,
   objectToPush2: objectToPush
 ) {
-  const windowTabs = await promisify<Tab[], [{ windowId: number }]>(
-    chrome.tabs.query
-  )({ windowId: windowId });
-  console.log("window", windowTabs);
-  console.log("windowLength", windowTabs.length);
+  try {
+    const windowTabs = await promisify<Tab[], [{ windowId: number }]>(
+      chrome.tabs.query
+    )({ windowId: windowId });
 
-  if (windowTabs != undefined) {
-    const windowLength = windowTabs.length;
-    console.log("windowLength", windowLength);
-    objectToPush2.tabWindowLength = windowLength;
-  } else {
-    throw new Error(`No window found with ID ${windowId}`);
+    console.log("window", windowTabs);
+    console.log("windowLength", windowTabs.length);
+
+    if (windowTabs.length > 0) {
+      const windowLength = windowTabs.length;
+      console.log("windowLength", windowLength);
+      objectToPush2.tabWindowLength = windowLength;
+    } else {
+      console.error(`No window found with ID ${windowId}`);
+    }
+  } catch (error) {
+    console.error(`Error querying window length: ${error.message}`);
   }
 }
 
-// old version without types that wouldn't let me compile
-/* async function windowLengthQuery(windowId) {
-  const window = await promisify(chrome.windows.get)(windowId);
-  console.log("window", window);
-  
-  if (window != undefined) {
-    const windowLength = window.tabs.length;
-    console.log("windowLength", windowLength);
-    return windowLength;
-  } else {
-    throw new Error(`No window found with ID ${windowId}`);
-  }
-} */
-
-// chrome.windows.get version
-/* async function windowLengthQuery(windowId: number): Promise<number> {
-  const window: Window | undefined = await promisify(chrome.windows.get)(windowId);
-  console.log("window", window);
-  
-  if (window !== undefined && window.tabs !== undefined) {
-    const windowLength: number = window.tabs.length;
-    console.log("windowLength", windowLength);
-    return windowLength;
-  } else {
-    throw new Error(`No window found with ID ${windowId}`);
-  }
-}
- */
-
-// query the active tab -- old version without types
-/* async function activeTabQuery(objectToPush2) {
-  const tabs = await promisify(chrome.tabs.query)({
-    active: true,
-    lastFocusedWindow: true,
-    highlighted: true,
-  });
-  if (tabs[0] != undefined) {
-    console.log("activeTab info with highlighted true", tabs[0]);
-    objectToPush2.activeTabId = tabs[0].id;
-    objectToPush2.activeTabWindowId = tabs[0].windowId;
-  }
-  return tabs;
-} */
-
-// query the active tab
+// query the active tab with try/catch block
 async function activeTabQuery(objectToPush2: objectToPush) {
-  const tabs = await promisify<
-    Tab[],
-    [{ active: boolean; lastFocusedWindow: boolean; highlighted: boolean }]
-  >(chrome.tabs.query)({
-    active: true,
-    lastFocusedWindow: true,
-    highlighted: true,
-  });
-  if (tabs[0] != undefined) {
-    console.log("activeTab info with highlighted true", tabs[0]);
-    objectToPush2.activeTabId = tabs[0].id;
-    objectToPush2.activeTabWindowId = tabs[0].windowId;
+  try {
+    const tabs = await promisify<
+      Tab[],
+      [{ active: boolean; lastFocusedWindow: boolean; highlighted: boolean }]
+    >(chrome.tabs.query)({
+      active: true,
+      lastFocusedWindow: true,
+      highlighted: true,
+    });
+
+    if (tabs.length > 0) {
+      console.log("activeTab info with highlighted true", tabs[0]);
+      objectToPush2.activeTabId = tabs[0].id;
+      objectToPush2.activeTabWindowId = tabs[0].windowId;
+    }
+    return tabs;
+  } catch (error) {
+    console.error(`Error querying active tab: ${error.message}`);
   }
-  return tabs;
 }
 
 // query the visitItems of the historyItem
@@ -880,93 +470,77 @@ async function getVisitsQuery(historyItem: HistoryItem, objectToPush2) {
   return objectToPush2.transitionType;
 }
 
-// new attempt at history listener - now WORKING
+// NEW VERSION w/ queue
 chrome.history.onVisited.addListener(async function (historyItem: HistoryItem) {
-  const objectToPush2 = {
-    id: null,
-    url: null,
-    user_id: null,
-    url_id: null,
-    domain_id: null,
-    activeTabId: null,
-    title: null,
-    transitionType: null,
-    activeTabWindowId: null,
-    linkTransition: null,
-    tabFaviconUrl: null,
-    tabId: null,
-    tabStatus: null,
-    tabWindowId: null,
-    tabWindowLength: null,
-    time: null,
-    session_id: null,
-    activatedTab: { lastQueryTime: null, url: null },
-    highlightedTab: { lastQueryTime: null, url: null },
-    link: { source: null, target: null },
-    node: null,
-  };
+  // Instead of processing the HistoryItem immediately, add it to the queue
+  historyItemQueue.push(historyItem);
 
-  // this will be replaced and removed
-  /* isActiveSessionChecker(historyItem); */
+  // If we're not currently processing any HistoryItems, start processing
+  if (!isProcessing) {
+    processHistoryItemQueue();
+  }
+});
 
-  // get the last activeSession from the server
-  const session_id = await getLastActiveSession(historyItem.lastVisitTime);
-
-  // get the domainId and urlId from the server -- this is elsewhere in the code, it could still be here but we moved on -- now in the appendIdsToEntry function
-  // const domainId = await getDomainId(historyItem.url);
-  // const urlId = await getUrlId(historyItem.url, domainId);
-
-  // append the domain_id and url_id -- this is elsewhere in the code, it could still be here but we moved on -- now in the appendIdsToEntry function
-  // objectToPush2.domain_id = domainId;
-  // objectToPush2.url_id = urlId;
-
-  objectToPush2.url = historyItem.url;
-  objectToPush2.title = historyItem.title;
-  objectToPush2.time = historyItem.lastVisitTime;
-  objectToPush2.id = uuidv4();
-
-  //adding the sessionId that should have been grabbed from getLastActiveSession()
-  objectToPush2.session_id = session_id;
-
-  // not using the promise.fulfill method
-  /* //activatedTab test
-  objectToPush2.activatedTab.lastQueryTime = activatedTab.lastQueryTime;
-  objectToPush2.activatedTab.url = activatedTab.info.url;
-
-  //highlightedTab test
-  objectToPush2.highlightedTab.lastQueryTime = highlightedTab.lastQueryTime;
-  objectToPush2.highlightedTab.url = highlightedTab.info.url;
-
-  await historyTabQuery(historyItem.url, objectToPush2);
-  await activeTabQuery(objectToPush2);
-  await getVisitsQuery(historyItem, objectToPush2);
-
-  if (
-    objectToPush2.tabFaviconUrl == "" ||
-    objectToPush2.tabFaviconUrl == null ||
-    objectToPush2.tabFaviconUrl == undefined
-  ) {
-    objectToPush2.tabFaviconUrl = getFaviconUrl(objectToPush2.url);
+// ESSENTIALLY THE NEW CHROME.HISTORY.ONVISITED FUNCTION
+// a que function to prevent race conditions on each of the historyItems
+async function processHistoryItemQueue() {
+  if (historyItemQueue.length === 0) {
+    isProcessing = false;
+    return;
   }
 
-  if (
-    objectToPush2.transitionType == "link" &&
-    objectToPush2.activeTabId != objectToPush2.tabId &&
-    objectToPush2.tabWindowId == objectToPush2.activeTabWindowId
-  ) {
-    objectToPush2.linkTransition = "newTab";
-  }
+  isProcessing = true;
 
-  if (objectToPush2.activeTabId == objectToPush2.tabId) {
-    objectToPush2.linkTransition = "sameTab";
-  } */
+  // Dequeue the next HistoryItem
+  const historyItem = historyItemQueue.shift();
 
   try {
-    // Call all three asynchronous functions simultaneously
-    await Promise.all([
+    const objectToPush2 = {
+      id: null,
+      url: null,
+      user_id: null,
+      url_id: null,
+      domain_id: null,
+      activeTabId: null,
+      title: null,
+      transitionType: null,
+      activeTabWindowId: null,
+      linkTransition: null,
+      tabFaviconUrl: null,
+      tabId: null,
+      tabStatus: null,
+      tabWindowId: null,
+      tabWindowLength: null,
+      time: null,
+      session_id: null,
+      activatedTab: { lastQueryTime: null, url: null },
+      highlightedTab: { lastQueryTime: null, url: null },
+      link: { source: null, target: null },
+      node: null,
+    };
+
+    // get the last activeSession from the server
+    const session_id = await getLastActiveSession(historyItem.lastVisitTime);
+
+    objectToPush2.url = historyItem.url;
+    objectToPush2.title = historyItem.title;
+    objectToPush2.time = historyItem.lastVisitTime;
+    objectToPush2.id = uuidv4();
+
+    //adding the sessionId that should have been grabbed from getLastActiveSession()
+    objectToPush2.session_id = session_id;
+
+    // Call all three asynchronous functions simultaneously -- w/out retry
+    /* await Promise.all([
       historyTabQuery(historyItem.url, objectToPush2),
       activeTabQuery(objectToPush2),
       getVisitsQuery(historyItem, objectToPush2),
+    ]); */
+
+    await Promise.all([
+      retry(() => historyTabQuery(historyItem.url, objectToPush2)),
+      retry(() => activeTabQuery(objectToPush2)),
+      retry(() => getVisitsQuery(historyItem, objectToPush2)),
     ]);
 
     if (objectToPush2.tabWindowId != undefined || null) {
@@ -996,10 +570,6 @@ chrome.history.onVisited.addListener(async function (historyItem: HistoryItem) {
     if (objectToPush2.transitionType == "typed") {
       objectToPush2.linkTransition = "sameTab";
     }
-
-    /* if (objectToPush2.transitionType == "auto-toplevel") {
-      objectToPush2.linkTransition = "newTab";
-    } */
 
     console.log("before queryByTimeTabIdAndWindowId");
 
@@ -1037,19 +607,34 @@ chrome.history.onVisited.addListener(async function (historyItem: HistoryItem) {
     await updateActivatedTab();
     //we update the highlighted tab after the highlightedTab data gets pushed
     await updateHighlightedTab();
-
-    /*  
-    // Call the Supabase upload function here
-    const { supabaseAccessToken, supabaseExpiration, userId } =
-      await getSupabaseKeys();
-    validateToken(supabaseAccessToken, supabaseExpiration);
-    await uploadHistory(supabaseAccessToken, userId, objectToPush2); 
-    */
   } catch (error) {
     // Handle any errors that occurred in any of the promises
     console.error(error);
   }
-});
+
+  // Once you've finished processing the HistoryItem, recursively call this function again
+  await processHistoryItemQueue();
+}
+
+// retry function in case there are any errors that emerge
+async function retry(fn, retriesLeft = 5, interval = 500) {
+  try {
+    const result = await fn();
+    return result;
+  } catch (error) {
+    if (retriesLeft) {
+      // Wait for the specified interval, then retry
+      return new Promise((resolve) => {
+        setTimeout(() => {
+          resolve(retry(fn, retriesLeft - 1, interval));
+        }, interval);
+      });
+    } else {
+      // If no retries left, throw the error
+      throw error;
+    }
+  }
+}
 
 // processURL function
 async function processURL(urlObject) {
@@ -1079,7 +664,7 @@ async function processURL(urlObject) {
   }
 }
 
-// strip URL of 'www.' prefix and trailing slash
+// new version that hopefully should work
 function normalizeURL(url) {
   if (!url) {
     return url;
@@ -1088,8 +673,18 @@ function normalizeURL(url) {
   const urlObj = new URL(url);
   let normalizedURL = urlObj.hostname + urlObj.pathname;
 
+  // Include the search parameters and hash fragment if they exist
+  if (urlObj.search) {
+    normalizedURL += urlObj.search;
+  }
+  if (urlObj.hash) {
+    normalizedURL += urlObj.hash;
+  }
+
   // Remove 'www.' prefix if exists
   normalizedURL = normalizedURL.replace(/^www\./, "");
+
+  console.log("normalizedURL", normalizedURL);
 
   return normalizedURL;
 }
@@ -1111,7 +706,7 @@ function normalizeDomain(url) {
   return normalizedDomain;
 }
 
-// remove any consecutive duplicate URLs -- this will be modified
+// remove any consecutive duplicate URLs -- NEW VERSION
 async function removeConsecutiveDuplicates(loadBalancer) {
   let i = 0;
   while (i < loadBalancer.length - 1) {
@@ -1129,18 +724,18 @@ async function removeConsecutiveDuplicates(loadBalancer) {
     }
 
     // remove if there's no tabId or tabWindowId
-    if (loadBalancer[i].tabId == null || loadBalancer[i].tabWindowId == null) {
+    if (!loadBalancer[i].tabId || !loadBalancer[i].tabWindowId) {
       loadBalancer.splice(i, 1);
       console.log("removed entry with null tabId and or null activeTabId");
     }
 
     if (currentURL === nextURL) {
       console.log("inside the equal URLs if statement");
-      if (loadBalancer[i].tabId == null) {
+      if (!loadBalancer[i].tabId) {
         console.log("loadBalancer[i].tabId", loadBalancer[i].tabId);
         loadBalancer.splice(i, 1); // remove this item if it has null tabId
         console.log("first item as null splice");
-      } else if (loadBalancer[i + 1].tabId == null) {
+      } else if (!loadBalancer[i + 1].tabId) {
         console.log("loadBalancer[i + 1].tabId", loadBalancer[i + 1].tabId);
         loadBalancer.splice(i + 1, 1); // remove the next item if it has null tabId
         console.log("second item as null splice");
@@ -1173,72 +768,45 @@ async function removeConsecutiveDuplicates(loadBalancer) {
   }
 }
 
-// adding domainId and urlId to entry -- OLD that isn't working
-/* async function appendIdsToEntry(entry) {
-  console.log("inside appendIdsToEntry - entry", entry);
-  console.log("inside appendIdsToEntry - entry.url", entry.url);
-
-  // Get the domainId and urlId from the server
-  const domainId = await getDomainId(entry.url);
-  const urlId = await getUrlId(entry.url, domainId);
-
-  // Append the domain_id and url_id
-  entry.domain_id = domainId;
-  entry.url_id = urlId;
-
-  console.log("inside the appendIdsToEntry function - entry", entry);
-  console.log(
-    "inside the appendIdsToEntry function - entry.url_id",
-    entry.url_id
-  );
-  console.log(
-    "inside the appendIdsToEntry function - entry.domain_id",
-    entry.domain_id
-  );
-} */
-
-// adding domainId and urlId to entry -- NOT WORKING AT ALL
-/* function appendIdsToEntry(entry) {
-  console.log("inside appendIdsToEntry - entry", entry);
-  console.log("inside appendIdsToEntry - entry.url", entry.url);
-
-  // Get the domainId and urlId from the server
-  const domainPromise = getDomainId(entry.url);
-  const urlPromise = domainPromise.then((domainId) =>
-    getUrlId(entry.url, domainId)
-  );
-
-  // Return a promise that resolves when both domainId and urlId are fetched
-  return Promise.all([domainPromise, urlPromise]).then(([domainId, urlId]) => {
-    // Append the domain_id and url_id
-    entry.domain_id = domainId;
-    entry.url_id = urlId;
-
-    console.log("inside the appendIdsToEntry function - entry", entry);
-    console.log(
-      "inside the appendIdsToEntry function - entry.url_id",
-      entry.url_id
-    );
-    console.log(
-      "inside the appendIdsToEntry function - entry.domain_id",
-      entry.domain_id
-    );
-  });
-} */
-
-async function appendIdsToEntry(loadBalancer) {
+// adding domaindId and urlId to each entry -- OLD
+/* async function appendIdsToEntry(loadBalancer) {
   loadBalancer.forEach(async (entry) => {
     console.log("inside appendIdsToEntry - entry", entry);
     console.log("inside appendIdsToEntry - entry.url", entry.url);
 
     // Get the domainId and urlId from the server
     const domainId = await getDomainId(entry.url);
+    console.log("domainId in appendIdsToEntry", domainId);
     const urlId = await getUrlId(entry.url, domainId);
+    console.log("urlId in appendIdsToEntry", urlId);
 
     // Append the domain_id and url_id
     entry.domain_id = domainId;
     entry.url_id = urlId;
   });
+} */
+
+// adding domaindId and urlId to each entry -- NEW
+async function appendIdsToEntry(loadBalancer) {
+  for (const entry of loadBalancer) {
+    console.log("inside appendIdsToEntry - entry", entry);
+    console.log("inside appendIdsToEntry - entry.url", entry.url);
+
+    try {
+      // Get the domainId and urlId from the server
+      const domainId = await retry(() => getDomainId(entry.url));
+      console.log("domainId in appendIdsToEntry", domainId);
+
+      const urlId = await retry(() => getUrlId(entry.url, domainId));
+      console.log("urlId in appendIdsToEntry", urlId);
+
+      // Append the domain_id and url_id
+      entry.domain_id = domainId;
+      entry.url_id = urlId;
+    } catch (error) {
+      console.error("Error appending domainId and urlId to entry:", error);
+    }
+  }
 }
 
 // upload URLs
@@ -1255,23 +823,6 @@ function uploadAll(loadBalancer) {
   });
   console.log("this should be the end");
 }
-
-let loadBalancer = [];
-let uploadTimeout = null;
-
-// activated tab init
-const activatedTab = {
-  info: null,
-  tabId: null,
-  lastQueryTime: null,
-};
-
-// highlighted tab init
-const highlightedTab = {
-  info: null,
-  tabId: null,
-  lastQueryTime: null,
-};
 
 // capturing the activatedTab info
 chrome.tabs.onActivated.addListener(async (activeTab) => {
@@ -1393,67 +944,6 @@ async function queryByTimeTabIdAndWindowId(
   return data;
 }
 
-/* ------------------------------------------------------------------------------------------------------------------------------------- */
-
-// did not work and now defunct
-/* async function updateLink(referralUrlId, objectId, supabaseAccessToken) {
-  console.log("inside updateLink");
-  console.log("referralUrlId", referralUrlId);
-  console.log("objectId", objectId);
-
-  const SUPABASE_URL_ = `https://veedcagxcbafijuaremr.supabase.co/rest/v1/historyItems?id=eq.${objectId}`; // Use a horizontal filter in the URL
-
-  const response = await fetch(SUPABASE_URL_, {
-    method: "PATCH", // Change method to PATCH for updating
-    headers: {
-      apikey: import.meta.env.VITE_APP_SUPABASE_ANON_KEY,
-      Authorization: `Bearer ${supabaseAccessToken}`,
-      "Content-Type": "application/json",
-      Prefer: "return=minimal",
-    },
-    body: JSON.stringify({
-      link: { source: referralUrlId, target: objectId },
-      test: "test",
-    }), // Update endTime to the current timestamp
-  });
-
-  if (!response.ok) {
-    const errorResponse = await response.json();
-    throw new Error(
-      `HTTP error! status: ${response.status}, message: ${errorResponse.message}`
-    );
-  }
-} */
-
-// did not work, not too sure why
-/* async function queryHistoryItem(historyItemTime, supabaseAccessToken) {
-  const SUPABASE_URL_ = `https://veedcagxcbafijuaremr.supabase.co/rest/v1/historyItems?select=*&time=eq.${historyItemTime}`;
-  console.log("queryHistoryItem");
-
-  const response = await fetch(SUPABASE_URL_, {
-    method: "GET",
-    headers: {
-      apikey: import.meta.env.VITE_APP_SUPABASE_ANON_KEY,
-      Authorization: `Bearer ${supabaseAccessToken}`,
-      Range: "0-1",
-    },
-  });
-
-  if (!response.ok) {
-    const errorResponse = await response.json();
-    throw new Error(
-      `HTTP error! status: ${response.status}, message: ${errorResponse.message}`
-    );
-  }
-
-  const data = await response.json();
-  // const referralUrlId = data[0].id;
-  console.log("data from queryHistoryItem", data);
-  // console.log("referralUrlId", referralUrlId);
-  console.log("data", data);
-  return data;
-} */
-
 // when a newWindow event is detected this gets appended
 async function newWindowLinkAppend(time, objectToPush2) {
   const { supabaseAccessToken, supabaseExpiration } = await getSupabaseKeys();
@@ -1525,213 +1015,6 @@ async function newTabLinkAppend(time, objectToPush2, windowId) {
 
   return data;
 }
-
-/* -------------------------------------------------------------------------------------------------------------------------------------- */
-// the new rearchitecture stuff
-
-//these FOUR functions below have become defunct
-
-/* // check if the domain exists
-async function domainChecker(urlObject) {
-  const { supabaseAccessToken, supabaseExpiration } = await getSupabaseKeys();
-  validateToken(supabaseAccessToken, supabaseExpiration);
-
-  //strip url to the domain
-  const domainToCheck = normalizeDomain(urlObject.url);
-
-  const SUPABASE_URL_ = `https://veedcagxcbafijuaremr.supabase.co/rest/v1/domains?select=*&domain=eq.${domainChecker}`;
-
-  const response = await fetch(SUPABASE_URL_, {
-    method: "GET",
-    headers: {
-      apikey: import.meta.env.VITE_APP_SUPABASE_ANON_KEY,
-      Authorization: `Bearer ${supabaseAccessToken}`,
-      Range: "0",
-    },
-  });
-
-  if (!response.ok) {
-    const errorResponse = await response.json();
-    throw new Error(
-      `HTTP error! status: ${response.status}, message: ${errorResponse.message}`
-    );
-  }
-
-  const data = await response.json();
-  console.log("data from domainChecker", data);
-
-  if (data[0] == undefined || data[0] == null) {
-    domainUploader(domainToCheck);
-  }
-
-  if ((data.length > 0 && data[0] != undefined) || data[0] != null) {
-    urlChecker(urlObject);
-  }
-
-  return;
-}
-
-// upload the domain if it doesn't exist
-async function domainUploader(domainToCheck) {
-  const { supabaseAccessToken, supabaseExpiration, userId } =
-    await getSupabaseKeys();
-  validateToken(supabaseAccessToken, supabaseExpiration);
-
-  const SUPABASE_URL_ =
-    "https://veedcagxcbafijuaremr.supabase.co/rest/v1/domains";
-
-  const domainObject = { id: uuidv4(), domain: domainToCheck, userId: userId };
-
-  console.log("inside createNewSession");
-
-  const response = await fetch(SUPABASE_URL_, {
-    method: "POST",
-    headers: {
-      apikey: import.meta.env.VITE_APP_SUPABASE_ANON_KEY,
-      Authorization: `Bearer ${supabaseAccessToken}`,
-      "Content-Type": "application/json",
-      Prefer: "return=minimal",
-    },
-    body: JSON.stringify(domainObject),
-  });
-
-  if (!response.ok) {
-    const errorResponse = await response.json();
-    throw new Error(
-      `HTTP error! status: ${response.status}, message: ${errorResponse.message}`
-    );
-  }
-}
-
-// check if the url exists
-async function urlChecker(urlObject) {
-  const { supabaseAccessToken, supabaseExpiration } = await getSupabaseKeys();
-  validateToken(supabaseAccessToken, supabaseExpiration);
-
-  //strip url to the domain
-  const urlToCheck = normalizeURL(urlObject.url);
-
-  const SUPABASE_URL_ = `https://veedcagxcbafijuaremr.supabase.co/rest/v1/urls?select=*&url=eq.${urlToCheck}`;
-
-  const response = await fetch(SUPABASE_URL_, {
-    method: "GET",
-    headers: {
-      apikey: import.meta.env.VITE_APP_SUPABASE_ANON_KEY,
-      Authorization: `Bearer ${supabaseAccessToken}`,
-      Range: "0",
-    },
-  });
-
-  if (!response.ok) {
-    const errorResponse = await response.json();
-    throw new Error(
-      `HTTP error! status: ${response.status}, message: ${errorResponse.message}`
-    );
-  }
-
-  const data = await response.json();
-  console.log("data from urlChecker", data);
-
-  if (data[0] == undefined || data[0] == null) {
-    urlUploader(urlObject);
-  }
-
-  if (data[0] != undefined || data[0] != null) {
-    //append a session to the url -- not going to do this anymore though
-    urlSessionUpdater(urlObject);
-  }
-}
-
-// upload the url if it doesn't exist
-async function urlUploader(urlToObject) {
-  const { supabaseAccessToken, supabaseExpiration, userId } =
-    await getSupabaseKeys();
-  validateToken(supabaseAccessToken, supabaseExpiration);
-
-  const SUPABASE_URL_ = "https://veedcagxcbafijuaremr.supabase.co/rest/v1/urls";
-
-  const urlObject = { id: uuidv4(), url: urlToObject, userId: userId };
-  const randomId = uuidv4();
-
-  console.log("inside createNewSession");
-
-  const response = await fetch(SUPABASE_URL_, {
-    method: "POST",
-    headers: {
-      apikey: import.meta.env.VITE_APP_SUPABASE_ANON_KEY,
-      Authorization: `Bearer ${supabaseAccessToken}`,
-      "Content-Type": "application/json",
-      Prefer: "return=minimal",
-    },
-    body: JSON.stringify({}),
-  });
-
-  if (!response.ok) {
-    const errorResponse = await response.json();
-    throw new Error(
-      `HTTP error! status: ${response.status}, message: ${errorResponse.message}`
-    );
-  }
-} */
-
-// update the url the sessionId -- this will be ignored and removed
-/* async function urlSessionUpdater() {
-
-} */
-
-// checks if any sessions exists -- this will have to be deleted
-/* async function updateServerSessionChecker() {
-  const { supabaseAccessToken, supabaseExpiration } = await getSupabaseKeys();
-  validateToken(supabaseAccessToken, supabaseExpiration);
-
-  const SUPABASE_URL_ = `https://veedcagxcbafijuaremr.supabase.co/rest/v1/browsingSessions?select=*&order=time.desc`;
-
-  const response = await fetch(SUPABASE_URL_, {
-    method: "GET",
-    headers: {
-      apikey: import.meta.env.VITE_APP_SUPABASE_ANON_KEY,
-      Authorization: `Bearer ${supabaseAccessToken}`,
-      Range: "0",
-    },
-  });
-
-  if (!response.ok) {
-    const errorResponse = await response.json();
-    throw new Error(
-      `HTTP error! status: ${response.status}, message: ${errorResponse.message}`
-    );
-  }
-
-  const data = await response.json();
-  console.log("data from sessionExistsChecker", data);
-
-  // establishing the current time
-  const currentTime = Date.now();
-
-  if (data[0] == undefined || data[0] == null) {
-    // not needed really but why not
-    resetActiveSession();
-
-    // since there is no entry in the database, create a new session
-    const currentTime = Date.now();
-    createNewSession(currentTime);
-  }
-
-  if (data[0] != undefined || data[0] != null && data.lenght > 0) {
-    const endSessionTime = data[0].endTime;
-
-    // if currentTime is less than endSessionTime, update endSessionTime
-    if (currentTime <= endSessionTime) {
-      updateEndSession();
-    }
-
-    // if current time is greater than endSessionTime create new session
-    if (currentTime > endSessionTime) {
-      resetActiveSession();
-      createNewSession(currentTime);
-    }
-  }
-} */
 
 // create a new session
 async function createNewSession(baseTime) {
@@ -1873,8 +1156,6 @@ async function getLastActiveSession(baseTime) {
   } */
 }
 
-/* These are the core functions for url and domain indexes */
-
 // domainId from the domain table
 async function getDomainId(urlObject) {
   const { supabaseAccessToken, supabaseExpiration } = await getSupabaseKeys();
@@ -1916,7 +1197,7 @@ async function getDomainId(urlObject) {
 
   return newDomainId;
 }
-
+getUrlId;
 // create a new domain
 async function createDomainId(domainToUpload) {
   const { supabaseAccessToken, supabaseExpiration, userId } =
@@ -1960,16 +1241,22 @@ async function createDomainId(domainToUpload) {
   return domainId;
 }
 
-// urlId from the url table
+// urlId from the url table -- New Version
 async function getUrlId(urlObject, domainId) {
   const { supabaseAccessToken, supabaseExpiration } = await getSupabaseKeys();
   validateToken(supabaseAccessToken, supabaseExpiration);
 
-  //strip url to the url by normalizing it
   const urlToCheck = normalizeURL(urlObject);
   console.log("urlToCheck in getUrlId", urlToCheck);
 
-  const SUPABASE_URL_ = `https://veedcagxcbafijuaremr.supabase.co/rest/v1/urls?select=*&url=eq.${urlToCheck}&domain_id=eq.${domainId}`;
+  //slight modification to the url
+  const encodedUrlToCheck = encodeURIComponent(urlToCheck);
+
+  // had just urlToCheck before
+  const SUPABASE_URL_ = `https://veedcagxcbafijuaremr.supabase.co/rest/v1/urls?select=*&url=eq.${encodedUrlToCheck}&domain_id=eq.${domainId}`;
+  console.log("SUPABASE_URL_", SUPABASE_URL_);
+  console.log("urlToCheck:", urlToCheck);
+  console.log("domainId:", domainId);
 
   const response = await fetch(SUPABASE_URL_, {
     method: "GET",
@@ -1989,19 +1276,26 @@ async function getUrlId(urlObject, domainId) {
 
   const data = await response.json();
 
-  // return domainId if it exists
-  if (data && data.length > 0) {
-    return data[0].id; // assuming 'id' is the name of the field containing the domain id
-  }
-
-  if (data.length < 1) {
+  // Check if data is an array and if it has any elements
+  if (Array.isArray(data) && data.length > 0) {
+    const urlId = data[0].id;
+    if (!urlId) {
+      console.error("No id property in data[0]:", data[0]);
+      throw new Error("No id property in data[0]");
+    }
+    return urlId;
+  } else if (Array.isArray(data) && data.length === 0) {
     const newUrlId = await createUrlId(urlObject, domainId);
+    if (!newUrlId) {
+      console.error("createUrlId did not return a new urlId");
+      throw new Error("createUrlId did not return a new urlId");
+    }
     console.log("a new urlId was created");
-
     return newUrlId;
+  } else {
+    console.error("Unexpected data format from Supabase:", data);
+    throw new Error("Unexpected data format from Supabase");
   }
-
-  // If no domain found, create a new one
 }
 
 // create a new urlId for the url table
@@ -2043,4 +1337,6 @@ async function createUrlId(url, domainId) {
       `HTTP error! status: ${response.status}, message: ${errorResponse.message}`
     );
   }
+
+  return urlId;
 }
