@@ -1,5 +1,5 @@
 // import { Field, Form, Formik } from 'formik';
-import { FormEvent, useState } from 'react';
+import { FormEvent, useState } from "react";
 
 function LoadingSpinner({ loading }: { loading: boolean }) {
   if (!loading) return <></>;
@@ -38,7 +38,7 @@ interface Props {
 
 export const FormInput: React.FC<
   React.InputHTMLAttributes<HTMLInputElement>
-> = ({ disabled = false, className = '', ...props }) => (
+> = ({ disabled = false, className = "", ...props }) => (
   <input
     disabled={disabled}
     className={`${className} mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50 form-input`}
@@ -51,7 +51,7 @@ const SignIn = ({
   title,
   onScreenChange,
   helpText,
-  error,
+  errorMessage,
 }: Props) => {
   const [loading, setLoading] = useState(false);
   const onSubmit = (event: FormEvent<HTMLFormElement>) => {
@@ -90,14 +90,19 @@ const SignIn = ({
         >
           <LoadingSpinner loading={loading} /> Submit
         </button>
-        {error && (
+        {/* {error && (
           <p className={'font-bold   text-orange-600 dark:text-orange-600'}>
             {error}
           </p>
-        )}
+        )} */}
         {helpText && (
           <p className="font-bold text-slate-800">
             <a onClick={onScreenChange}>{helpText}</a>
+          </p>
+        )}
+        {errorMessage && (
+          <p className={"font-bold text-orange-600 dark:text-orange-600"}>
+            {errorMessage}
           </p>
         )}
       </form>

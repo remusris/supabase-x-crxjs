@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 // import SignIn from "./SignIn";
 
 import type { User } from "@supabase/supabase-js";
+import { Transition } from "react-transition-group";
 
 // deal with all of this later
 
@@ -130,8 +131,16 @@ function IndexOptions() {
   const [expiration, setExpiration] = useState(0);
   const [user, setUser] = useState<User>(null);
   const [loading, setLoading] = useState(true);
+  // new addition  for the popup code
+  const [errorMessage, setErrorMessage] = useState("");
+  const [error, setError] = useState("");
+  const [fadeError, setFadeError] = useState(false);
+
+  const [loadingUser, setLoadingUser] = useState(true);
 
   useEffect(() => {
+    setLoadingUser(true);
+
     chrome.storage.local.get(
       [
         chromeStorageKeys.supabaseAccessToken,
@@ -158,6 +167,7 @@ function IndexOptions() {
                 }
               }
               setLoading(false); // Always stop loading, whether there was an error or not
+              setLoadingUser(false);
             });
           };
 
@@ -175,33 +185,52 @@ function IndexOptions() {
               console.log("Token is about to expire, refreshing token");
               refreshAndUpdate();
             } else {
-              setLoading(false); // Add this line
+              // setLoading(false); // Add this line
+              setLoadingUser(false); //Add this line
             }
           }
         } else {
-          setLoading(false); // Add this line
+          // setLoading(false); // Add this line
+          setLoadingUser(false); //Add this line
         }
       }
     );
   }, []);
 
   async function handleLogin(username: string, password: string) {
+    // Start the fade transition
+    setFadeError(false);
+    setError("");
+
     try {
       // Send a message to the background script to initiate the login
       chrome.runtime.sendMessage(
         { action: "signin", value: { email: username, password: password } },
         (response) => {
           if (response.error) {
-            alert("Error with auth: " + response.error.message);
+            // alert("Error with auth: " + response.error.message);
+            setError("Error with auth: " + response.error.message);
+
+            // Start a timer to fade out the error message after 2 seconds
+            setTimeout(() => {
+              setFadeError(true);
+            }, 2000);
           } else if (response.data?.user) {
             setUser(response.data.user);
             setExpiration(response.data.session.expires_at);
+            setErrorMessage("Error with auth: " + response.error.message);
           }
         }
       );
     } catch (error) {
       console.log("error", error);
-      alert(error.error_description || error);
+      // alert(error.error_description || error);
+      setError("Error with auth: " + error.error.message);
+
+      // Start a timer to fade out the error message after 2 seconds
+      setTimeout(() => {
+        setFadeError(true);
+      }, 2000);
     }
   }
 
@@ -212,7 +241,9 @@ function IndexOptions() {
         { action: "signup", value: { email: username, password: password } },
         (response) => {
           if (response.error) {
-            alert("Error with auth: " + response.error.message);
+            // alert("Error with auth: " + response.error.message);
+            setError("Error with auth: " + response.error.message);
+            setErrorMessage("Error with auth: " + response.error.message);
           } else if (response.data?.user) {
             alert("Signup successful, confirmation mail should be sent soon!");
           }
@@ -220,7 +251,8 @@ function IndexOptions() {
       );
     } catch (error) {
       console.log("error", error);
-      alert(error.error_description || error);
+      // alert(error.error_description || error);
+      setError("Error with auth: " + error.error_description);
     }
   }
 
@@ -232,6 +264,7 @@ function IndexOptions() {
         (response) => {
           if (response.error) {
             alert("Error signing out: " + response.error.message);
+            setError("Error with auth: " + response.error.message);
           } else {
             setUser(null);
             setExpiration(0);
@@ -241,6 +274,7 @@ function IndexOptions() {
     } catch (error) {
       console.log("error", error);
       alert(error.error_description || error);
+      setError("Error with auth: " + error.error_description);
     }
   }
 
@@ -268,7 +302,7 @@ function IndexOptions() {
   return (
     <div className="flex flex-col items-center p-4 bg-gradient-to-r from-blue-100 to-blue-200 text-slate-800 w-full">
       <h1 className="text-2xl font-bold mb-4">MemoryLink</h1>
-      {loading ? (
+      {loadingUser ? (
         <div>Loading...</div>
       ) : user ? (
         <>
@@ -297,7 +331,7 @@ function IndexOptions() {
         </>
       ) : (
         <form
-          className="flex flex-col items-center justify-start gap-y-6 w-full"
+          className="flex flex-col items-center justify-start gap-y-3 w-full"
           onSubmit={(e) => {
             e.preventDefault();
             handleLogin(username, password);
@@ -324,6 +358,25 @@ function IndexOptions() {
               onChange={(e) => setPassword(e.target.value)}
             />
           </label>
+
+          <div style={{ height: "50px" }}>
+            {error && (
+              <Transition in={!fadeError} timeout={1250} unmountOnExit>
+                {(state) => (
+                  <div
+                    className={`bg-red-500 text-white p-3 rounded transition-opacity duration-2000 ${
+                      state === "entering" || state === "entered"
+                        ? "opacity-100"
+                        : "opacity-0"
+                    }`}
+                  >
+                    {error}
+                  </div>
+                )}
+              </Transition>
+            )}
+          </div>
+
           <div className="flex justify-around w-full">
             <button
               type="submit"

@@ -104,7 +104,7 @@ async function handleMessage(
   if (action === "signin") {
     console.log("requesting auth");
     const { data, error } = await supabase.auth.signInWithPassword(value);
-    console.log("token expiration", data.session.expires_at);
+    // console.log("token expiration", data.session.expires_at);
     if (data && data.session) {
       await setKeyInStorage({
         [chromeStorageKeys.supabaseAccessToken]: data.session.access_token,
@@ -116,7 +116,9 @@ async function handleMessage(
       console.log("User data stored in chrome.storage.sync");
       response({ data, error });
     } else {
-      response({ data: null, error: "No active session" });
+      console.log("failed login attempt", error);
+      // response({ data: null, error: "No active session" }); -- this is the old response
+      response({ data: null, error: error });
     }
   } else if (action === "signup") {
     const { data, error } = await supabase.auth.signUp(value);
@@ -768,24 +770,6 @@ async function removeConsecutiveDuplicates(loadBalancer) {
   }
 }
 
-// adding domaindId and urlId to each entry -- OLD
-/* async function appendIdsToEntry(loadBalancer) {
-  loadBalancer.forEach(async (entry) => {
-    console.log("inside appendIdsToEntry - entry", entry);
-    console.log("inside appendIdsToEntry - entry.url", entry.url);
-
-    // Get the domainId and urlId from the server
-    const domainId = await getDomainId(entry.url);
-    console.log("domainId in appendIdsToEntry", domainId);
-    const urlId = await getUrlId(entry.url, domainId);
-    console.log("urlId in appendIdsToEntry", urlId);
-
-    // Append the domain_id and url_id
-    entry.domain_id = domainId;
-    entry.url_id = urlId;
-  });
-} */
-
 // adding domaindId and urlId to each entry -- NEW
 async function appendIdsToEntry(loadBalancer) {
   for (const entry of loadBalancer) {
@@ -1200,7 +1184,7 @@ async function getDomainId(urlObject) {
 
   return newDomainId;
 }
-getUrlId;
+
 // create a new domain
 async function createDomainId(domainToUpload) {
   const { supabaseAccessToken, supabaseExpiration, userId } =
