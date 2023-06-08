@@ -51,7 +51,7 @@ const SignIn = ({
   title,
   onScreenChange,
   helpText,
-  errorMessage,
+  error,
 }: Props) => {
   const [loading, setLoading] = useState(false);
   const onSubmit = (event: FormEvent<HTMLFormElement>) => {
@@ -100,9 +100,9 @@ const SignIn = ({
             <a onClick={onScreenChange}>{helpText}</a>
           </p>
         )}
-        {errorMessage && (
+        {error && (
           <p className={"font-bold text-orange-600 dark:text-orange-600"}>
-            {errorMessage}
+            {error}
           </p>
         )}
       </form>

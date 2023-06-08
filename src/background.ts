@@ -189,43 +189,6 @@ async function handleMessage(
     } else {
       response({ data: null, error: "No refresh token available" });
     }
-  } else if (action === "fetchSmoothies") {
-    const { data, error } = await supabase.from("smoothies").select();
-
-    if (error) {
-      response({
-        data: null,
-        error: error.message || "Fetching smoothies failed",
-      });
-    } else {
-      response({ data, error: null });
-    }
-  } else if (action === "addSmoothie") {
-    try {
-      const { title, method, rating } = value;
-      const { data, error } = await supabase
-        .from("smoothies")
-        .insert([{ title, method, rating }]);
-      if (error) {
-        response({ error: error.message, data: null });
-      } else {
-        response({ error: null, data: data });
-      }
-    } catch (error) {
-      response({ error: error.message, data: null });
-    }
-  } else if (action === "fetchTopics") {
-    const { data, error } = await supabase.from("topics").select();
-
-    if (error) {
-      response({
-        data: null,
-        error: error.message || "Fetching topics failed",
-      });
-    } else {
-      response({ data, error: null });
-    }
-  }
 }
 
 //@ts-ignore - essential code below - messaging from popup script
@@ -241,7 +204,10 @@ async function updateServer() {
     console.log("updateServer function is called");
 
     const currentTime = Date.now();
-    getLastActiveSession(currentTime);
+    // no more getLastActiveSession time
+    // getLastActiveSession(currentTime);
+
+    pollingLastActiveSession(currentTime);
 
     isUserActive = false;
   } else {
@@ -473,9 +439,17 @@ async function getVisitsQuery(historyItem: HistoryItem, objectToPush2) {
 }
 
 // NEW VERSION w/ queue
+// primary event listener
 chrome.history.onVisited.addListener(async function (historyItem: HistoryItem) {
   // Instead of processing the HistoryItem immediately, add it to the queue
-  historyItemQueue.push(historyItem);
+  console.log("normalize to localHost", normalizeToLocalhost(historyItem.url));
+
+  if (normalizeToLocalhost(historyItem.url) !== "localhost") {
+    historyItemQueue.push(historyItem);
+  }
+
+  //this is how it's always been
+  // historyItemQueue.push(historyItem);
 
   // If we're not currently processing any HistoryItems, start processing
   if (!isProcessing) {
@@ -642,7 +616,7 @@ async function retry(fn, retriesLeft = 5, interval = 500) {
 async function processURL(urlObject) {
   // push the new URL onto the loadBalancer array
   loadBalancer.push(urlObject);
-  console.log("loadBalancer", loadBalancer);
+  console.log("loadBalancer in processURL", loadBalancer);
 
   const uploadDelay = 1500;
 
@@ -708,22 +682,36 @@ function normalizeDomain(url) {
   return normalizedDomain;
 }
 
+// determine whether it is a localhost url
+function normalizeToLocalhost(url) {
+  if (!url) {
+    return url;
+  }
+
+  const urlObj = new URL(url);
+  const hostname = urlObj.hostname;
+
+  // split the hostname by ':' and return the first part
+  let domainWithoutPort = hostname.split(":")[0];
+
+  // Remove any forward slashes
+  domainWithoutPort = domainWithoutPort.replace(/\//g, "");
+
+  console.log("Inside the normalizeToLocalhost function", domainWithoutPort);
+
+  return domainWithoutPort;
+}
+
 // remove any consecutive duplicate URLs -- NEW VERSION
 async function removeConsecutiveDuplicates(loadBalancer) {
+  console.log("loadBalancer in removeConsecutiveDuplicates", loadBalancer);
+
   let i = 0;
   while (i < loadBalancer.length - 1) {
     const currentURL = normalizeURL(loadBalancer[i].url);
     const nextURL = normalizeURL(loadBalancer[i + 1].url);
     console.log("currentURL", currentURL);
     console.log("nextURL", nextURL);
-    console.log("loadBalancer[i].tabId", loadBalancer[i].tabId);
-    console.log("loadBalancer[i + 1].tabId", loadBalancer[i + 1].tabId);
-
-    // Remove if transitionType is 'form_submit'
-    if (loadBalancer[i].transitionType === "form_submit") {
-      loadBalancer.splice(i, 1);
-      console.log("Removed URL with form_submit transitionType");
-    }
 
     // remove if there's no tabId or tabWindowId
     if (!loadBalancer[i].tabId || !loadBalancer[i].tabWindowId) {
@@ -772,6 +760,7 @@ async function removeConsecutiveDuplicates(loadBalancer) {
 
 // adding domaindId and urlId to each entry -- NEW
 async function appendIdsToEntry(loadBalancer) {
+  console.log("loadBalancer in appendIdsToEntry", loadBalancer);
   for (const entry of loadBalancer) {
     console.log("inside appendIdsToEntry - entry", entry);
     console.log("inside appendIdsToEntry - entry.url", entry.url);
@@ -783,6 +772,12 @@ async function appendIdsToEntry(loadBalancer) {
 
       const urlId = await retry(() => getUrlId(entry.url, domainId));
       console.log("urlId in appendIdsToEntry", urlId);
+
+      // check for the faviconUrl in domain table
+      await retry(() => domainFaviconChecker(entry.tabFaviconUrl, domainId));
+
+      // check count for the current Session
+      await retry(() => checkSessionCount(entry.session_id));
 
       // Append the domain_id and url_id
       entry.domain_id = domainId;
@@ -798,6 +793,7 @@ function uploadAll(loadBalancer) {
   //update the chrome.tabs.get function
   // updateActivatedTab();
 
+  console.log("inside uploadAll + loadBalancer", loadBalancer);
   console.log("inside uploadAll");
   loadBalancer.forEach(async (urlObject) => {
     const { supabaseAccessToken, supabaseExpiration, userId } =
@@ -1143,6 +1139,39 @@ async function getLastActiveSession(baseTime) {
   } */
 }
 
+// get last active Session for polling
+async function pollingLastActiveSession(baseTime) {
+  const { supabaseAccessToken, supabaseExpiration } = await getSupabaseKeys();
+  validateToken(supabaseAccessToken, supabaseExpiration);
+
+  const SUPABASE_URL_ = `https://veedcagxcbafijuaremr.supabase.co/rest/v1/browsingSessions?select=*&order=startTime.desc`;
+
+  const response = await fetch(SUPABASE_URL_, {
+    method: "GET",
+    headers: {
+      apikey: import.meta.env.VITE_APP_SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${supabaseAccessToken}`,
+      Range: "0",
+    },
+  });
+
+  if (!response.ok) {
+    const errorResponse = await response.json();
+    throw new Error(
+      `HTTP error! status: ${response.status}, message: ${errorResponse.message}`
+    );
+  }
+
+  const data = await response.json();
+  console.log("data from getActiveSessionFromServer", data);
+
+  // only if there's an already active session will we go out of our way to extend it
+  if (data[0].endTime > baseTime) {
+    updateEndSession(data[0].id);
+    return data[0].id;
+  }
+}
+
 // domainId from the domain table
 async function getDomainId(urlObject) {
   const { supabaseAccessToken, supabaseExpiration } = await getSupabaseKeys();
@@ -1327,3 +1356,162 @@ async function createUrlId(url, domainId) {
 
   return urlId;
 }
+
+// check if there is a domainFaviconURL in the domain table
+async function domainFaviconChecker(faviconUrl, domainId) {
+  const { supabaseAccessToken, supabaseExpiration } = await getSupabaseKeys();
+  validateToken(supabaseAccessToken, supabaseExpiration);
+
+  const SUPABASE_URL_ = `https://veedcagxcbafijuaremr.supabase.co/rest/v1/domains?select=*&id=eq.${domainId}`;
+
+  const response = await fetch(SUPABASE_URL_, {
+    method: "GET",
+    headers: {
+      apikey: import.meta.env.VITE_APP_SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${supabaseAccessToken}`,
+      Range: "0",
+    },
+  });
+
+  if (!response.ok) {
+    const errorResponse = await response.json();
+    throw new Error(
+      `HTTP error! status: ${response.status}, message: ${errorResponse.message}`
+    );
+  }
+
+  const data = await response.json();
+  console.log("domainFavicon checker data", data);
+
+  if (!data.faviconUrl) {
+    console.log("inside the !data and faviconUrl: ", faviconUrl);
+    domainFaviconUploader(domainId, faviconUrl);
+  }
+
+  return;
+}
+
+// upload domain faviconURL to the domain table
+async function domainFaviconUploader(domainId, faviconUrl) {
+  const { supabaseAccessToken, supabaseExpiration } = await getSupabaseKeys();
+  validateToken(supabaseAccessToken, supabaseExpiration);
+
+  const SUPABASE_URL_ = `https://veedcagxcbafijuaremr.supabase.co/rest/v1/domains?select=*&id=eq.${domainId}`;
+
+  const response = await fetch(SUPABASE_URL_, {
+    method: "PATCH", // Change method to PATCH for updating
+    headers: {
+      apikey: import.meta.env.VITE_APP_SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${supabaseAccessToken}`,
+      "Content-Type": "application/json",
+      Prefer: "return=minimal",
+    },
+    body: JSON.stringify({ faviconUrl: faviconUrl }), // Update faviconUrl to the current timestamp
+  });
+
+  if (!response.ok) {
+    const errorResponse = await response.json();
+    throw new Error(
+      `HTTP error! status: ${response.status}, message: ${errorResponse.message}`
+    );
+  }
+}
+
+// these three functions are not working for reasons that I don't fully understand
+/* // check the count of the most recent session
+async function checkSessionCount(sessionId) {
+  const { supabaseAccessToken, supabaseExpiration } = await getSupabaseKeys();
+  validateToken(supabaseAccessToken, supabaseExpiration);
+
+  const SUPABASE_URL_ = `https://veedcagxcbafijuaremr.supabase.co/rest/v1/browsingSessions?select=*&id=eq.${sessionId}`;
+
+  const response = await fetch(SUPABASE_URL_, {
+    method: "GET",
+    headers: {
+      apikey: import.meta.env.VITE_APP_SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${supabaseAccessToken}`,
+      Range: "0",
+    },
+  });
+
+  if (!response.ok) {
+    const errorResponse = await response.json();
+    throw new Error(
+      `HTTP error! status: ${response.status}, message: ${errorResponse.message}`
+    );
+  }
+
+  const data = await response.json();
+  console.log("checksessioncount data", data);
+  console.log("data.count checkSessionCount", data.count);
+
+  if (data.count > 0) {
+    console.log("inside the data.count > 0", data.count);
+    const count = data.count + 1;
+
+    console.log("count inside checkSessionCount", count);
+    updateSessionCount(sessionId, count);
+  } else {
+    console.log("inside the else", data.count);
+    const count = 1;
+    createSessionCount(sessionId, count);
+  }
+
+  return;
+}
+
+// update the count of the most recent session
+async function updateSessionCount(sessionId, countInput) {
+  const { supabaseAccessToken, supabaseExpiration } = await getSupabaseKeys();
+  validateToken(supabaseAccessToken, supabaseExpiration);
+
+  console.log("inside the updateSessionCount function, countInput", countInput);
+
+  const SUPABASE_URL_ = `https://veedcagxcbafijuaremr.supabase.co/rest/v1/browsingSessions?select=*&id=eq.${sessionId}`;
+
+  const response = await fetch(SUPABASE_URL_, {
+    method: "PATCH", // Change method to PATCH for updating
+    headers: {
+      apikey: import.meta.env.VITE_APP_SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${supabaseAccessToken}`,
+      "Content-Type": "application/json",
+      Prefer: "return=minimal",
+    },
+    body: JSON.stringify({ count: countInput }), // Update faviconUrl to the current timestamp
+  });
+
+  if (!response.ok) {
+    const errorResponse = await response.json();
+    throw new Error(
+      `HTTP error! status: ${response.status}, message: ${errorResponse.message}`
+    );
+  }
+}
+
+// create a new count value of the most recent session
+async function createSessionCount(sessionId, countInput) {
+  const { supabaseAccessToken, supabaseExpiration } = await getSupabaseKeys();
+  validateToken(supabaseAccessToken, supabaseExpiration);
+
+  console.log("inside the updateSessionCount function, countInput", countInput);
+
+  const SUPABASE_URL_ = `https://veedcagxcbafijuaremr.supabase.co/rest/v1/browsingSessions?select=*&id=eq.${sessionId}`;
+
+  const response = await fetch(SUPABASE_URL_, {
+    method: "PATCH", // Change method to PATCH for updating
+    headers: {
+      apikey: import.meta.env.VITE_APP_SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${supabaseAccessToken}`,
+      "Content-Type": "application/json",
+      Prefer: "return=minimal",
+    },
+    body: JSON.stringify({ count: countInput }), // Update faviconUrl to the current timestamp
+  });
+
+  if (!response.ok) {
+    const errorResponse = await response.json();
+    throw new Error(
+      `HTTP error! status: ${response.status}, message: ${errorResponse.message}`
+    );
+  }
+} */
